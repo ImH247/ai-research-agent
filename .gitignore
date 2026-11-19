@@ -1,0 +1,8 @@
+# 로컬 도구 설정과 임시 파일 (저장소·압축 파일에 넣지 않음)
+.claude/
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+*.log

@@ -1,0 +1,9 @@
+{
+  "name": "ai-research-agent",
+  "private": true,
+  "type": "module",
+  "description": "AI Research Agent - 브라우저에서 동작하는 연구 조사 에이전트 (GitHub Pages)",
+  "scripts": {
+    "test": "node --test tests/"
+  }
+}

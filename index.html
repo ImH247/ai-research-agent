@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://api.anthropic.com https://api.openalex.org https://api.semanticscholar.org https://www.ebi.ac.uk; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="light dark">
+  <title>AI Research Agent</title>
+  <script src="./assets/js/boot.js"></script>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='rgb(36,86,201)'/%3E%3Ccircle cx='14' cy='14' r='6.5' fill='none' stroke='white' stroke-width='2.2'/%3E%3Cpath d='M19 19l6 6M11 14h6' stroke='white' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./assets/tokens.css">
+  <link rel="stylesheet" href="./assets/app.css">
+  <link rel="stylesheet" href="./assets/result.css">
+  <script type="module" src="./assets/js/main.js"></script>
+</head>
+<body>
+  <div id="app">
+    <div class="boot" role="status" aria-live="polite">
+      <span class="spinner"></span>
+      <span class="boot-text">불러오는 중…</span>
+    </div>
+  </div>
+  <div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
+  <noscript>
+    <p class="noscript">이 화면은 JavaScript가 필요합니다. 브라우저 설정에서 JavaScript를 켜 주세요.</p>
+  </noscript>
+</body>
+</html>

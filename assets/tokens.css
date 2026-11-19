@@ -1,0 +1,168 @@
+/* 디자인 토큰 — 색·글꼴·간격의 단일 원본.
+   결과물(HTML·PDF·Word·PPT)의 색은 exporters/theme.py가 같은 값을 쓴다. 값을 바꾸면 두 곳을 함께 고친다.
+   테마: <html data-theme="light|dark">. 속성이 없으면 OS 설정을 따른다. */
+
+:root {
+  color-scheme: light;
+
+  /* 면 */
+  --bg: #f6f7f9;              /* 앱 바탕 */
+  --surface: #ffffff;         /* 카드 · 사이드바 */
+  --surface-2: #f1f3f6;       /* 옅은 채움 · 호버 */
+  --surface-3: #e8ebf0;       /* 눌림 · 진행 막대 바탕 */
+  --border: #e2e5eb;
+  --border-strong: #cbd0da;
+  --scrim: rgba(15, 17, 21, 0.45);
+
+  /* 글자 */
+  --text: #15171c;
+  --text-2: #4a5160;
+  --text-3: #6b7383;          /* 보조 설명 (흰 바탕 대비 4.7:1) */
+  --text-on-accent: #ffffff;
+
+  /* 강조색 (한 가지만 쓴다) */
+  --accent: #2456c9;
+  --accent-hover: #1d49ad;
+  --accent-soft: #e8eefb;
+  --accent-ring: rgba(36, 86, 201, 0.28);
+
+  /* 상태색 — 판정·경고 표시에만 쓴다. 항상 아이콘 + 글자와 함께 */
+  --good: #0ca30c;
+  --good-soft: #e7f6e7;
+  --warning: #fab219;
+  --warning-soft: #fef5dc;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --critical-soft: #fbe9e9;
+  --neutral: #898781;
+  --neutral-soft: #eeeeeb;
+
+  /* 차트 (고정 순서, 순환 금지) */
+  --chart-seq: #2a78d6;       /* 크기 비교용 단일 색상 */
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-none: #c3c2b7;      /* '해당 없음' 등 중립 조각 */
+  --chart-grid: #e1e0d9;
+
+  /* 글꼴 */
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic",
+    "맑은 고딕", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "IBM Plex Mono", Consolas, "D2Coding", "Courier New", monospace;
+  --fs-12: 0.75rem;
+  --fs-13: 0.8125rem;
+  --fs-14: 0.875rem;          /* UI 기본 */
+  --fs-15: 0.9375rem;
+  --fs-16: 1rem;              /* 보고서 본문 */
+  --fs-18: 1.125rem;
+  --fs-22: 1.375rem;
+  --fs-28: 1.75rem;
+  --lh-ui: 1.5;
+  --lh-read: 1.8;
+
+  /* 간격 (4px 격자) */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+
+  /* 모서리 · 그림자 */
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-pill: 999px;
+  --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-2: 0 4px 16px rgba(16, 24, 40, 0.08);
+  --shadow-pop: 0 12px 32px rgba(16, 24, 40, 0.16), 0 2px 6px rgba(16, 24, 40, 0.08);
+
+  /* 치수 */
+  --sidebar-w: 264px;
+  --control-h: 36px;
+  --content-w: 860px;         /* 작성 화면 본문 폭 */
+  --read-w: 760px;            /* 보고서 읽기 폭 */
+
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur: 160ms;
+}
+
+/* 다크: 뒤집은 값이 아니라 따로 고른 값 */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1115;
+  --surface: #171a20;
+  --surface-2: #1f232b;
+  --surface-3: #2a2f39;
+  --border: #2a2f39;
+  --border-strong: #3a404c;
+  --scrim: rgba(0, 0, 0, 0.6);
+  --text: #eceef2;
+  --text-2: #b4bac6;
+  --text-3: #8a91a0;
+  --text-on-accent: #0f1115;
+  --accent: #7aa0f5;
+  --accent-hover: #94b3f7;
+  --accent-soft: #1b2947;
+  --accent-ring: rgba(122, 160, 245, 0.35);
+  --good: #0ca30c;
+  --good-soft: #10291a;
+  --warning: #fab219;
+  --warning-soft: #33290f;
+  --serious: #ec835a;
+  --critical: #e66767;
+  --critical-soft: #3a1c1c;
+  --neutral: #898781;
+  --neutral-soft: #26282d;
+  --chart-seq: #3987e5;
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-none: #52514e;
+  --chart-grid: #2c2c2a;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --bg: #0f1115;
+    --surface: #171a20;
+    --surface-2: #1f232b;
+    --surface-3: #2a2f39;
+    --border: #2a2f39;
+    --border-strong: #3a404c;
+    --scrim: rgba(0, 0, 0, 0.6);
+    --text: #eceef2;
+    --text-2: #b4bac6;
+    --text-3: #8a91a0;
+    --text-on-accent: #0f1115;
+    --accent: #7aa0f5;
+    --accent-hover: #94b3f7;
+    --accent-soft: #1b2947;
+    --accent-ring: rgba(122, 160, 245, 0.35);
+    --good-soft: #10291a;
+    --warning-soft: #33290f;
+    --critical: #e66767;
+    --critical-soft: #3a1c1c;
+    --neutral-soft: #26282d;
+    --chart-seq: #3987e5;
+    --chart-1: #3987e5;
+    --chart-2: #d95926;
+    --chart-3: #199e70;
+    --chart-4: #c98500;
+    --chart-none: #52514e;
+    --chart-grid: #2c2c2a;
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.45);
+    --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.4);
+  }
+}

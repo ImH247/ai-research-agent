@@ -1,0 +1,56 @@
+{
+ "id": "sample_genai_graduate_research",
+ "status": "done",
+ "prompt": "생성형 AI 활용이 대학원생의 연구 생산성과 연구 품질에 미치는 영향",
+ "topic": "생성형 AI 활용이 대학원생의 연구 생산성과 연구 품질에 미치는 영향",
+ "model": "claude-opus-5-5",
+ "model_label": "Claude Opus 5.5",
+ "config": {
+  "model": "claude-opus-5-5",
+  "depth": "standard",
+  "min_subq": 4,
+  "max_subq": 6,
+  "max_reflection_rounds": 2,
+  "max_tool_steps": 4,
+  "results_per_search": 6,
+  "verify_sample": 10,
+  "year_from": null,
+  "language": "ko",
+  "human_in_the_loop": false,
+  "parallelism": 1,
+  "formats": [
+   "md",
+   "html"
+  ]
+ },
+ "created_at": "2026-11-02T07:13:35",
+ "started_at": "2026-11-02T07:13:35",
+ "finished_at": "2026-11-02T07:37:25",
+ "elapsed_s": 1428.0,
+ "stage": "done",
+ "round": 2,
+ "progress": null,
+ "counts": {
+  "collected": 229,
+  "included": 86,
+  "merged": 52,
+  "report_evidence": 86,
+  "sub_questions": 7
+ },
+ "usage": {
+  "calls": 79,
+  "input_tokens": 419170,
+  "output_tokens": 135059,
+  "cost_usd": 4.38
+ },
+ "awaiting": null,
+ "error": null,
+ "formats": [
+  "md",
+  "html"
+ ],
+ "has_result": true,
+ "sample": true,
+ "demo": false,
+ "note": "중간고사 제출 버전(Colab 노트북)으로 실제 실행한 결과를 웹 앱 형식으로 옮긴 샘플입니다."
+}

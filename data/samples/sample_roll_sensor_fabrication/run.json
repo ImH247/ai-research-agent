@@ -1,0 +1,56 @@
+{
+ "id": "sample_roll_sensor_fabrication",
+ "status": "done",
+ "prompt": "롤러를 활용한 센서 제작 공정",
+ "topic": "롤러를 활용한 센서 제작 공정",
+ "model": "claude-opus-5-5",
+ "model_label": "Claude Opus 5.5",
+ "config": {
+  "model": "claude-opus-5-5",
+  "depth": "standard",
+  "min_subq": 4,
+  "max_subq": 6,
+  "max_reflection_rounds": 2,
+  "max_tool_steps": 4,
+  "results_per_search": 6,
+  "verify_sample": 10,
+  "year_from": 2025,
+  "language": "ko",
+  "human_in_the_loop": false,
+  "parallelism": 1,
+  "formats": [
+   "md",
+   "html"
+  ]
+ },
+ "created_at": "2026-11-02T07:53:13",
+ "started_at": "2026-11-02T07:53:13",
+ "finished_at": "2026-11-02T08:14:01",
+ "elapsed_s": 1248.0,
+ "stage": "done",
+ "round": 2,
+ "progress": null,
+ "counts": {
+  "collected": 182,
+  "included": 37,
+  "merged": 120,
+  "report_evidence": 37,
+  "sub_questions": 7
+ },
+ "usage": {
+  "calls": 75,
+  "input_tokens": 432241,
+  "output_tokens": 113252,
+  "cost_usd": 3.99
+ },
+ "awaiting": null,
+ "error": null,
+ "formats": [
+  "md",
+  "html"
+ ],
+ "has_result": true,
+ "sample": true,
+ "demo": false,
+ "note": "중간고사 제출 버전(Colab 노트북)으로 실제 실행한 결과를 웹 앱 형식으로 옮긴 샘플입니다."
+}
