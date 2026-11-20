@@ -5,6 +5,7 @@ const KEYS = {
   apiKey: 'ra.apiKey',
   mockApiKey: 'ra.mock.apiKey', // 테스트 모드(?mock=1)의 가짜 키는 따로 둔다(실제 모드로 새지 않게)
   theme: 'ra.theme',
+  skin: 'ra.skin', // 디자인(DESIGN_LAVENDER 3절): 'lavender' | 'classic'. boot.js도 같은 키를 읽는다.
   prefs: 'ra.prefs',
   draft: 'ra.draft',
   onboarding: 'ra.onboarding',
@@ -78,6 +79,7 @@ export const store = createStore({
   runs: null,            // 기록 목록(null = 아직 불러오지 않음)
   keyStatus: { state: 'none', message: '', models: null }, // none | unchecked | ok | error
   theme: loadTheme(),    // light | dark | system
+  skin: loadSkin(),      // lavender | classic (화면 디자인)
   prefs: loadPrefs(),    // 마지막으로 쓴 설정
   draft: loadDraft(),    // 작성 중인 프롬프트
   prefill: null,         // "같은 설정으로 다시 조사": {prompt, config}
@@ -150,6 +152,26 @@ export function saveTheme(theme) {
   if (t === 'system') safeRemove(LS, KEYS.theme);
   else safeSet(LS, KEYS.theme, t);
   return t;
+}
+
+/**
+ * 화면 디자인(스킨). boot.js와 같은 순서: 이 화면에 이미 적용된 값(<html data-skin>, URL ?skin= 반영됨) →
+ * localStorage 'ra.skin' → 기본 'lavender'. 값은 'lavender' | 'classic'만.
+ */
+export function loadSkin() {
+  let applied = null;
+  try { applied = globalThis.document?.documentElement?.getAttribute('data-skin') ?? null; } catch { applied = null; }
+  if (applied === 'lavender' || applied === 'classic') return applied;
+  const s = safeGet(LS, KEYS.skin);
+  return s === 'classic' ? 'classic' : 'lavender';
+}
+
+/** 디자인을 저장하고 정리된 값을 돌려준다. 상태(store.skin)도 함께 바꾼다. */
+export function saveSkin(skin) {
+  const s = skin === 'classic' ? 'classic' : 'lavender';
+  safeSet(LS, KEYS.skin, s);
+  if (typeof store !== 'undefined') store.set({ skin: s });
+  return s;
 }
 
 /**

@@ -1,0 +1,567 @@
+/* AI Research Agent — 새 디자인 "라벤더" (docs/DESIGN_LAVENDER.md)
+   result.css 다음에 읽힌다. 모든 규칙은 :root[data-skin="lavender"] 아래에 있다.
+   data-skin="classic"(또는 속성 없음)이면 이 파일의 규칙은 하나도 적용되지 않아 지금 디자인이 그대로 보인다.
+   색은 세 계열만: 보라(라벤더~바이올렛) · 민트 · 코랄(살구~주홍) + 보라 기운의 중립색.
+   구성: 1 토큰(밝은 · 어두운 · 시스템 어두운) · 2 글자 · 4.1 바탕 · 4.2 사이드바 · 4.3 버튼·선택 ·
+         4.4 처음 화면 · 4.5 조사 설정 패널 · 4.6 진행 화면 · 4.7 결과 화면 · 4.8 창·알림·메뉴 · 5 강제 색상·인쇄 */
+
+/* ───────── 1. 토큰 ───────── */
+
+/* 1.2 밝은 화면 */
+:root[data-skin="lavender"] {
+  /* 면 */
+  --bg: #F7F4FF;
+  --surface: #FFFFFF;
+  --surface-2: #F3EFFC;
+  --surface-3: #E8E1F9;
+  --border: #E5DEF5;
+  --border-strong: #CBC1E6;
+  --scrim: rgba(30, 21, 53, 0.5);
+
+  /* 글자 */
+  --text: #1E1933;
+  --text-2: #4B4463;
+  --text-3: #68617F; /* 스펙 #6C6587 → --surface-3 위에서도 4.5:1 이상(4.60) */
+  --text-on-accent: #FFFFFF;
+
+  /* 주색(보라) */
+  --accent: #6A3DE8;
+  --accent-hover: #5A2FD0;
+  --accent-soft: #EEE8FF;
+  --accent-ring: rgba(106, 61, 232, 0.30);
+
+  /* 상태색: 완료 = 민트, 주의·오류 = 살구·코랄 */
+  --good: #097A6B;    /* 스펙 #0A7F6F → --good-soft 위 숫자(처음 화면 2단계)가 4.5:1 이상(4.66) */
+  --good-soft: #E1F6F2;
+  --warning: #D9672F; /* 스펙 #E0703A → 아이콘 전용, --warning-soft 위에서도 3:1 이상(3.12) */
+  --warning-soft: #FFEDE4;
+  --serious: #E0503A;
+  --critical: #BE3324;
+  --critical-soft: #FDEBE7;
+  --neutral: #8B84A3;
+  --neutral-soft: #EFEBF8;
+
+  /* 차트: 보라 · 코랄 · 민트 · 라벤더 */
+  --chart-seq: #7C4DF0;
+  --chart-1: #7C4DF0;
+  --chart-2: #F26D50;
+  --chart-3: #19B8A2;
+  --chart-4: #C9B8FD;
+  --chart-none: #CFC9E0;
+  --chart-grid: #E9E4F5;
+
+  /* 그림자 · 모서리 */
+  --shadow-1: 0 1px 2px rgba(60, 35, 140, 0.08);
+  --shadow-2: 0 6px 20px rgba(60, 35, 140, 0.10);
+  --shadow-pop: 0 16px 40px rgba(45, 25, 110, 0.20), 0 2px 8px rgba(45, 25, 110, 0.10);
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 20px;
+
+  /* 글꼴 (assets/fonts/fonts.css의 "RA Pretendard" · "RA Outfit") */
+  --font-sans: "RA Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  --font-display: "RA Outfit", "RA Pretendard", -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+
+  /* 스킨 전용 변수 (스펙 1.2) */
+  --grad-primary: linear-gradient(135deg, #7C4DF0 0%, #5A2FD0 100%);
+  /* 끝 색은 스펙 #A688FA(2.57:1) 대신 #9070F5 — 큰 제목 기준 3:1 이상(3.32) */
+  --grad-title: linear-gradient(92deg, #4A2BB0 0%, #7C4DF0 60%, #9070F5 100%);
+  --side-top: #34226B;
+  --side-bottom: #24184D;
+  --violet: #7C4DF0;
+  --mint: #19B8A2;
+  --coral: #F26D50;
+  --lavender: #C9B8FD;
+
+  /* 스킨 안에서만 쓰는 파생 값(밝은/어두운 화면에서 값만 바뀐다) */
+  --glow: 0 6px 16px rgba(106, 61, 232, 0.32);
+  --glow-hover: 0 9px 22px rgba(106, 61, 232, 0.38);
+  --glow-active: 0 3px 10px rgba(106, 61, 232, 0.28);
+  --shadow-prompt: 0 10px 30px rgba(60, 35, 140, 0.10);
+  --seg-on: var(--surface);
+  --cite-hover: #E0D6FE;
+  --selection: #E0D6FE;
+  --aurora-violet: rgba(167, 139, 250, 0.20);
+  --aurora-mint: rgba(79, 209, 190, 0.14);
+  --aurora-apricot: rgba(255, 158, 122, 0.12);
+  /* 처음 화면 전용(4.1): 위쪽에 글자가 놓이지 않으므로 더 진하게 */
+  --hero-violet: rgba(167, 139, 250, 0.42);
+  --hero-mint: rgba(79, 209, 190, 0.24);
+  --hero-apricot: rgba(255, 158, 122, 0.22);
+  --side-new-bg: #FFFFFF;
+  --side-new-hover: #F1ECFF;
+  --side-edge: none;
+  --toast-bg: #221A3D;
+  --toast-edge: transparent;
+
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+/* 1.3 어두운 화면 — 직접 고른 경우([data-theme="dark"]) */
+:root[data-skin="lavender"][data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #14111F;
+  --surface: #1C1830;
+  --surface-2: #241F3B;
+  --surface-3: #2E2849;
+  --border: #2F2A47;
+  --border-strong: #443D63;
+  --scrim: rgba(8, 5, 18, 0.65);
+  --text: #EFEBFA;
+  --text-2: #BDB5D6;
+  --text-3: #9A92B5;
+  --text-on-accent: #1A1330;
+  --accent: #A78BFA;
+  --accent-hover: #B9A3FB;
+  --accent-soft: #2D2452;
+  --accent-ring: rgba(167, 139, 250, 0.40);
+  --good: #3FD4BF;
+  --good-soft: #143D38;
+  --warning: #FFA873;
+  --warning-soft: #4A2C1C;
+  --serious: #FF8E6E;
+  --critical: #FF8370;
+  --critical-soft: #4A211B;
+  --neutral: #8F87AD;
+  --neutral-soft: #2A2542;
+  --chart-seq: #A78BFA;
+  --chart-1: #A78BFA;
+  --chart-2: #FF8E6E;
+  --chart-3: #3FD4BF;
+  --chart-4: #5B4B99;
+  --chart-none: #4A4366;
+  --chart-grid: #2F2A47;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.5);
+  --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.65), 0 2px 8px rgba(0, 0, 0, 0.45);
+  --grad-primary: linear-gradient(135deg, #B9A3FB 0%, #8F6DF7 100%);
+  --grad-title: linear-gradient(92deg, #C9B8FD 0%, #A78BFA 60%, #8F6DF7 100%);
+  --side-top: #221842;
+  --side-bottom: #150F2B;
+  --violet: #A78BFA;
+  --mint: #3FD4BF;
+  --coral: #FF8E6E;
+  --lavender: #C9B8FD;
+  --glow: 0 6px 18px rgba(143, 109, 247, 0.26);
+  --glow-hover: 0 9px 24px rgba(143, 109, 247, 0.34);
+  --glow-active: 0 3px 10px rgba(143, 109, 247, 0.22);
+  --shadow-prompt: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --seg-on: var(--surface-3);
+  --cite-hover: rgba(167, 139, 250, 0.24);
+  --selection: rgba(167, 139, 250, 0.38);
+  --aurora-violet: rgba(167, 139, 250, 0.10);
+  --aurora-mint: rgba(79, 209, 190, 0.07);
+  --aurora-apricot: rgba(255, 158, 122, 0.06);
+  --hero-violet: rgba(167, 139, 250, 0.22);
+  --hero-mint: rgba(79, 209, 190, 0.11);
+  --hero-apricot: rgba(255, 158, 122, 0.10);
+  --side-new-bg: #EEE8FF;
+  --side-new-hover: #FFFFFF;
+  --side-edge: inset -1px 0 0 rgba(255, 255, 255, 0.06);
+  --toast-bg: #2A2149;
+  --toast-edge: rgba(255, 255, 255, 0.10);
+}
+
+/* 1.3 어두운 화면 — 시스템 설정을 따를 때(tokens.css와 같은 방식: data-theme 속성 없음) */
+@media (prefers-color-scheme: dark) {
+  :root[data-skin="lavender"]:not([data-theme]) {
+    color-scheme: dark;
+    --bg: #14111F;
+    --surface: #1C1830;
+    --surface-2: #241F3B;
+    --surface-3: #2E2849;
+    --border: #2F2A47;
+    --border-strong: #443D63;
+    --scrim: rgba(8, 5, 18, 0.65);
+    --text: #EFEBFA;
+    --text-2: #BDB5D6;
+    --text-3: #9A92B5;
+    --text-on-accent: #1A1330;
+    --accent: #A78BFA;
+    --accent-hover: #B9A3FB;
+    --accent-soft: #2D2452;
+    --accent-ring: rgba(167, 139, 250, 0.40);
+    --good: #3FD4BF;
+    --good-soft: #143D38;
+    --warning: #FFA873;
+    --warning-soft: #4A2C1C;
+    --serious: #FF8E6E;
+    --critical: #FF8370;
+    --critical-soft: #4A211B;
+    --neutral: #8F87AD;
+    --neutral-soft: #2A2542;
+    --chart-seq: #A78BFA;
+    --chart-1: #A78BFA;
+    --chart-2: #FF8E6E;
+    --chart-3: #3FD4BF;
+    --chart-4: #5B4B99;
+    --chart-none: #4A4366;
+    --chart-grid: #2F2A47;
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.45);
+    --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.5);
+    --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.65), 0 2px 8px rgba(0, 0, 0, 0.45);
+    --grad-primary: linear-gradient(135deg, #B9A3FB 0%, #8F6DF7 100%);
+    --grad-title: linear-gradient(92deg, #C9B8FD 0%, #A78BFA 60%, #8F6DF7 100%);
+    --side-top: #221842;
+    --side-bottom: #150F2B;
+    --violet: #A78BFA;
+    --mint: #3FD4BF;
+    --coral: #FF8E6E;
+    --lavender: #C9B8FD;
+    --glow: 0 6px 18px rgba(143, 109, 247, 0.26);
+    --glow-hover: 0 9px 24px rgba(143, 109, 247, 0.34);
+    --glow-active: 0 3px 10px rgba(143, 109, 247, 0.22);
+    --shadow-prompt: 0 10px 30px rgba(0, 0, 0, 0.45);
+    --seg-on: var(--surface-3);
+    --cite-hover: rgba(167, 139, 250, 0.24);
+    --selection: rgba(167, 139, 250, 0.38);
+    --aurora-violet: rgba(167, 139, 250, 0.10);
+    --aurora-mint: rgba(79, 209, 190, 0.07);
+    --aurora-apricot: rgba(255, 158, 122, 0.06);
+    --hero-violet: rgba(167, 139, 250, 0.22);
+    --hero-mint: rgba(79, 209, 190, 0.11);
+    --hero-apricot: rgba(255, 158, 122, 0.10);
+    --side-new-bg: #EEE8FF;
+    --side-new-hover: #FFFFFF;
+    --side-edge: inset -1px 0 0 rgba(255, 255, 255, 0.06);
+    --toast-bg: #2A2149;
+    --toast-edge: rgba(255, 255, 255, 0.10);
+  }
+}
+
+/* ───────── 2. 글자 ───────── */
+/* 워드마크 "AI Research Agent" */
+:root[data-skin="lavender"] .wordmark-text {
+  font-family: var(--font-display); font-weight: 700; letter-spacing: -0.01em;
+}
+/* 화면 제목(진행 · 결과 · 그 밖의 쪽 제목) */
+:root[data-skin="lavender"] .page-title,
+:root[data-skin="lavender"] .run-title,
+:root[data-skin="lavender"] .result-title { font-weight: 800; letter-spacing: -0.03em; }
+/* 카드 · 블록 제목 */
+:root[data-skin="lavender"] .card-title,
+:root[data-skin="lavender"] .r-card-title,
+:root[data-skin="lavender"] .chart-title,
+:root[data-skin="lavender"] .onb-title,
+:root[data-skin="lavender"] .section-title,
+:root[data-skin="lavender"] .now-title,
+:root[data-skin="lavender"] .empty-title { font-weight: 700; }
+/* 숫자: 현황 타일 · 비용 · 개수 · 단계 번호 */
+:root[data-skin="lavender"] .tile-value,
+:root[data-skin="lavender"] .reflect-num,
+:root[data-skin="lavender"] .cost-cap-value,
+:root[data-skin="lavender"] .sp-est-main,
+:root[data-skin="lavender"] .step-num,
+:root[data-skin="lavender"] .step-no,
+:root[data-skin="lavender"] .onb-num,
+:root[data-skin="lavender"] .sh-count {
+  font-family: var(--font-display); font-variant-numeric: tabular-nums;
+}
+
+/* ───────── 4.1 바탕 ───────── */
+/* 본문 영역 위쪽의 옅은 오로라(보라 · 민트 · 살구). 약 420px 안에서 사라진다. */
+:root[data-skin="lavender"] .app-main {
+  background-image:
+    radial-gradient(560px 360px at 6% -60px, var(--aurora-violet), transparent 72%),
+    radial-gradient(520px 340px at 80% -80px, var(--aurora-mint), transparent 72%),
+    radial-gradient(620px 320px at 46% -110px, var(--aurora-apricot), transparent 72%);
+  background-repeat: no-repeat;
+}
+/* 처음 화면: 위쪽이 비어 있어(안내 카드는 흰 바탕, 제목은 가운데) 오로라를 더 진하고 넓게 깐다 — 첫인상의 임팩트.
+   진행 · 결과 화면은 위쪽에 작은 글자가 놓이므로 옅은 값 그대로 둔다. :has()가 없는 브라우저도 옅은 값으로 보인다. */
+:root[data-skin="lavender"] .app-main:has(.home) {
+  background-image:
+    radial-gradient(760px 460px at 4% -40px, var(--hero-violet), transparent 70%),
+    radial-gradient(640px 400px at 66% -70px, var(--hero-mint), transparent 70%),
+    radial-gradient(700px 380px at 36% -130px, var(--hero-apricot), transparent 70%);
+}
+:root[data-skin="lavender"] ::selection { background: var(--selection); color: var(--text); }
+
+/* ───────── 4.2 사이드바 — 진한 보라(가장 큰 임팩트) ───────── */
+/* 안에서만 토큰을 다시 정해, 버튼 · 입력 · 기록 줄 · 태그 · 세그먼트가 저절로 어두운 바탕용이 된다.
+   펼침 · 접힘 · 좁은 화면의 서랍이 모두 이 요소다. 팝오버 · 모달은 body에 붙으므로 밝은 토큰을 그대로 쓴다. */
+:root[data-skin="lavender"] .side {
+  --text: #F4F0FF;
+  --text-2: #CFC5EE;
+  --text-3: #C3B8E9; /* 스펙 #B3A6DC → 지금 보는 기록 줄(--surface-3) 위에서도 4.5:1 이상 */
+  --surface: rgba(255, 255, 255, 0.06);
+  --surface-2: rgba(255, 255, 255, 0.09);
+  --surface-3: rgba(255, 255, 255, 0.15);
+  --border: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.24);
+  --accent: #C9B8FD;
+  --accent-hover: #E0D6FE;
+  --accent-soft: rgba(201, 184, 253, 0.18);
+  --accent-ring: rgba(201, 184, 253, 0.45);
+  --text-on-accent: #24184D;
+  /* app.css의 --focus-ring은 :root에서 값이 정해지므로 여기서 다시 만든다(입력 칸 초점 고리를 라벤더로) */
+  --focus-ring: 0 0 0 3px rgba(201, 184, 253, 0.45);
+  /* 상태 점: 완료 민트 · 진행 라벤더(--accent) · 검토 대기 살구 · 오류 코랄 · 중단 --text-3 */
+  --good: #3FD4BF;
+  --warning: #FFB38F;
+  --critical: #FF8370;
+  --neutral: #B3A6DC;
+
+  background: linear-gradient(180deg, var(--side-top), var(--side-bottom));
+  border-right: 0;
+  box-shadow: var(--side-edge);
+  color: var(--text);
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+:root[data-skin="lavender"] .side ::selection { background: rgba(201, 184, 253, 0.35); color: #FFFFFF; }
+/* 서랍(≤899px)은 펼친 모양 그대로, 그림자만 더한다(app.css 규칙과 같은 값) */
+@media (max-width: 899px) {
+  :root[data-skin="lavender"] body.drawer-open .side { box-shadow: var(--shadow-pop); }
+}
+
+/* 로고 타일(사이드바 · 위쪽 바 · 시작 오류 카드 모두) */
+:root[data-skin="lavender"] .logo {
+  background: linear-gradient(135deg, #B79CFF, #7C4DF0);
+  color: #FFFFFF;
+  box-shadow: 0 2px 8px rgba(60, 35, 140, 0.25);
+}
+:root[data-skin="lavender"] .side .wordmark { color: var(--text); }
+
+/* "새 조사": 흰 바탕 + 보라 글자 (접힌 상태의 ＋ 버튼도 같은 규칙) */
+:root[data-skin="lavender"] .side .btn.side-new {
+  background: var(--side-new-bg); color: #4A2BB0; border-color: transparent;
+  font-weight: 700; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25); filter: none;
+}
+:root[data-skin="lavender"] .side .btn.side-new:hover { background: var(--side-new-hover); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.30); filter: none; }
+:root[data-skin="lavender"] .side .btn.side-new:active { background: var(--side-new-hover); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); filter: brightness(0.97); }
+
+/* 검색 입력: 반투명 흰 바탕 · 흰 글자 · 자리표시 --text-3 (값은 위 토큰이 정한다) */
+:root[data-skin="lavender"] .side .input { background: var(--surface); color: var(--text); }
+:root[data-skin="lavender"] .side .input:focus { background: rgba(255, 255, 255, 0.10); }
+
+/* 기록 줄: 호버 --surface-2, 지금 보는 조사는 --surface-3 + 왼쪽 3px 라벤더 막대 */
+:root[data-skin="lavender"] .side .hist-item.is-current { background: var(--surface-3); }
+:root[data-skin="lavender"] .side .hist-li:has(> .hist-item.is-current)::before {
+  content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px;
+  border-radius: 2px; background: #C9B8FD; pointer-events: none;
+}
+:root[data-skin="lavender"] .side .hist-item.is-current .hist-topic { color: #FFFFFF; }
+
+/* 태그: 반투명 흰 바탕 + --text-2 */
+:root[data-skin="lavender"] .side .tag { background: rgba(255, 255, 255, 0.10); color: var(--text-2); }
+:root[data-skin="lavender"] .side .tag.tag-accent { background: var(--accent-soft); color: var(--accent); }
+
+/* 설정 줄의 상태 점: 둘레를 사이드바 바탕색으로 따 낸다(반투명 --surface는 둘레가 비쳐 보이지 않는다) */
+:root[data-skin="lavender"] .side .side-key-icon .status-dot { box-shadow: 0 0 0 2px var(--side-bottom); }
+
+/* 테마 세그먼트: 고른 칸은 "새 조사"와 같은 흰 바탕 + 보라 */
+:root[data-skin="lavender"] .side .seg-btn[aria-pressed="true"],
+:root[data-skin="lavender"] .side .seg-btn.is-on {
+  background: var(--side-new-bg); color: #4A2BB0; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+/* 위쪽 바(좁은 화면)는 흰 바탕 유지 — 로고 타일만 그라데이션(위 .logo) */
+
+/* ───────── 4.3 버튼 · 선택 ───────── */
+:root[data-skin="lavender"] .btn-primary {
+  background: var(--grad-primary); border-color: transparent; color: var(--text-on-accent);
+  font-weight: 600; box-shadow: var(--glow);
+  transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease), filter var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+:root[data-skin="lavender"] .btn-primary:hover { background: var(--grad-primary); filter: brightness(1.06); box-shadow: var(--glow-hover); }
+:root[data-skin="lavender"] .btn-primary:active { background: var(--grad-primary); filter: brightness(0.96); box-shadow: var(--glow-active); }
+:root[data-skin="lavender"] .btn-primary:disabled,
+:root[data-skin="lavender"] .btn-primary[aria-disabled="true"] {
+  background: var(--grad-primary); filter: none; box-shadow: none; opacity: 0.5;
+}
+
+/* "조사 시작": 알약 모양 */
+:root[data-skin="lavender"] .btn.btn-start {
+  height: 46px; padding: 0 28px; border-radius: var(--r-pill); font-size: var(--fs-15);
+}
+/* 좁은 화면에서는 "조사 설정" 버튼과 한 줄을 나눠 쓰므로 옆 여백을 줄인다("조사 시작"이 잘리지 않게) */
+@media (max-width: 640px) {
+  :root[data-skin="lavender"] .btn.btn-start { padding: 0 var(--sp-4); }
+}
+
+/* 보조 버튼: 흰 바탕, 호버 때 테두리 · 글자 보라 (취소 버튼의 빨간 호버는 그대로) */
+:root[data-skin="lavender"] .btn-secondary { background: var(--surface); border-color: var(--border-strong); }
+:root[data-skin="lavender"] .btn-secondary:hover:not(:disabled):not([aria-disabled="true"]):not(.btn-cancel) {
+  background: var(--surface); border-color: var(--accent); color: var(--accent);
+}
+
+/* 체크 줄 · 체크 상자 · 스위치 */
+:root[data-skin="lavender"] .ck.is-selected { background: var(--accent-soft); }
+:root[data-skin="lavender"] .ck.is-selected .ck-box { background: var(--grad-primary); border-color: transparent; color: var(--text-on-accent); }
+:root[data-skin="lavender"] .checkbox:checked { background: var(--grad-primary); border-color: transparent; }
+/* 스위치 켜짐은 토큰(--accent)으로 보라가 된다 */
+
+/* 세그먼트: 바탕 --surface-2, 고른 칸은 흰색 + --shadow-1, 글자 보라 700 */
+:root[data-skin="lavender"] .seg { background: var(--surface-2); }
+:root[data-skin="lavender"] .seg-btn[aria-pressed="true"],
+:root[data-skin="lavender"] .seg-btn.is-on {
+  background: var(--seg-on); color: var(--accent); font-weight: 700; box-shadow: var(--shadow-1);
+}
+
+/* 카드: 옅은 라벤더 바탕 위에서 살짝 뜨게 */
+:root[data-skin="lavender"] .card { box-shadow: var(--shadow-1); }
+
+/* ───────── 4.4 처음 화면 ───────── */
+/* 머리띠: 색 점 세 개(보라 · 민트 · 코랄) + 한 줄 소개 */
+:root[data-skin="lavender"] .hero-eyebrow {
+  display: flex; align-items: center; gap: var(--sp-2);
+  width: fit-content; max-width: 100%; margin: 0 auto var(--sp-4);
+  height: 28px; padding: 0 var(--sp-3);
+  border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--surface);
+  box-shadow: var(--shadow-1);
+  font-size: var(--fs-12-5); font-weight: 600; line-height: 1; color: var(--accent);
+}
+:root[data-skin="lavender"] .hero-eyebrow-dots { display: inline-flex; align-items: center; gap: 3px; flex: none; }
+:root[data-skin="lavender"] .hero-eyebrow-dot { display: block; width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--violet); }
+:root[data-skin="lavender"] .hero-eyebrow-dot:nth-child(2) { background: var(--mint); }
+:root[data-skin="lavender"] .hero-eyebrow-dot:nth-child(3) { background: var(--coral); }
+:root[data-skin="lavender"] .hero-eyebrow-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 제목: 그라데이션 글자 */
+:root[data-skin="lavender"] .home-top .page-title {
+  width: fit-content; max-width: 100%; margin-left: auto; margin-right: auto;
+  font-family: var(--font-display); font-size: 2.5rem; font-weight: 800; line-height: 1.2; letter-spacing: -0.035em;
+  background: var(--grad-title);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent; -webkit-text-fill-color: transparent;
+}
+:root[data-skin="lavender"] .home-top .page-sub { color: var(--text-2); font-size: var(--fs-16); }
+@media (max-width: 640px) {
+  :root[data-skin="lavender"] .home-top .page-title { font-size: 1.75rem; }
+}
+
+/* 안내 카드: 흰 카드 · 큰 모서리 · 그림자, 단계 번호는 보라 · 민트 · 코랄 */
+:root[data-skin="lavender"] .onb-card { border-radius: var(--r-xl); box-shadow: var(--shadow-2); }
+:root[data-skin="lavender"] .onb-in-modal { box-shadow: none; }
+:root[data-skin="lavender"] .onb-num { border-color: transparent; background: var(--accent-soft); color: var(--accent); }
+:root[data-skin="lavender"] .onb-step:nth-child(2) .onb-num { background: var(--good-soft); color: var(--good); }
+:root[data-skin="lavender"] .onb-step:nth-child(3) .onb-num { background: var(--warning-soft); color: var(--critical); }
+:root[data-skin="lavender"] .onb-step .onb-num.is-done { background: var(--grad-primary); border-color: transparent; color: var(--text-on-accent); }
+
+/* 프롬프트 카드: 둥근 18px · 1.5px 테두리 · 넓은 그림자. 테두리 색(호버 · 초점 · 오류)은 공용 규칙이 정한다 */
+:root[data-skin="lavender"] .composer .prompt-card {
+  border-width: 1.5px; border-radius: 18px; box-shadow: var(--shadow-prompt);
+}
+:root[data-skin="lavender"] .composer .prompt-card:focus-within { box-shadow: var(--focus-ring), var(--shadow-prompt); }
+/* 예시 칩 */
+:root[data-skin="lavender"] .chip-example { background: var(--surface-2); border-color: var(--border); }
+:root[data-skin="lavender"] .chip-example:hover { background: var(--surface-2); border-color: var(--accent); color: var(--text); }
+/* .composer 바탕은 공용 규칙대로 --bg(불투명) — 오로라가 비치지 않는다 */
+
+/* ───────── 4.5 조사 설정 패널 ───────── */
+:root[data-skin="lavender"] .sp-block { border-radius: var(--r-lg); box-shadow: var(--shadow-1); }
+/* 블록 제목 앞 둥근 점: 보라(기본) · 결과물 민트 · 옵션 코랄 */
+:root[data-skin="lavender"] .sp-block-title::before {
+  content: ""; display: inline-block; width: 6px; height: 6px; margin: 0 7px 0 0;
+  border-radius: var(--r-pill); background: var(--violet); vertical-align: middle; position: relative; top: -1px;
+}
+:root[data-skin="lavender"] .sp-body > .sp-block:nth-of-type(3) .sp-block-title::before { background: var(--mint); }
+:root[data-skin="lavender"] .sp-body > .sp-block:nth-of-type(4) .sp-block-title::before { background: var(--coral); }
+/* 아래 예상치: 첫 줄은 큰 보라 숫자 */
+:root[data-skin="lavender"] .sp-est-main { font-weight: 800; color: var(--accent); letter-spacing: -0.01em; }
+/* "추천" 배지: 코랄 — 보라 선택 줄 안에서 눈에 띈다 */
+:root[data-skin="lavender"] .ck-badge.badge-accent { background: var(--warning-soft); color: var(--critical); }
+
+/* ───────── 4.6 진행 화면 ───────── */
+/* 단계 표시: 남은 단계 → 진행 중 → 끝남 */
+:root[data-skin="lavender"] .step-dot { border-color: var(--surface-3); background: var(--surface-2); }
+:root[data-skin="lavender"] .step.is-done .step-dot { background: var(--grad-primary); border-color: transparent; color: var(--text-on-accent); }
+:root[data-skin="lavender"] .step.is-active .step-dot { border: 2px solid var(--accent); background: var(--surface); box-shadow: 0 0 0 4px var(--accent-ring); }
+:root[data-skin="lavender"] .step.is-waiting .step-dot { border: 2px solid var(--accent); background: var(--accent-soft); color: var(--accent); }
+:root[data-skin="lavender"] .step.is-stopped .step-dot { border-color: var(--text-3); background: var(--surface-2); color: var(--text-2); }
+/* 연결선: 끝난 구간 보라, 나머지 --border */
+:root[data-skin="lavender"] .step + .step::before { background: var(--border); }
+:root[data-skin="lavender"] .step.is-done::before,
+:root[data-skin="lavender"] .step.is-active::before,
+:root[data-skin="lavender"] .step.is-waiting::before,
+:root[data-skin="lavender"] .step.is-stopped::before { background: var(--accent); }
+
+/* 진행 막대: 보라 → 민트 (비용 한도 근접 · 도달 색은 그대로) */
+:root[data-skin="lavender"] .bar { background: var(--surface-3); }
+:root[data-skin="lavender"] .bar i,
+:root[data-skin="lavender"] .step-progress i { background: linear-gradient(90deg, var(--violet), var(--mint)); }
+:root[data-skin="lavender"] .cost-cap.is-near .cost-cap-bar i { background: var(--warning); }
+:root[data-skin="lavender"] .cost-cap.is-hit .cost-cap-bar i { background: var(--critical); }
+
+/* 현황 타일: 흰 카드 + 큰 숫자, "예상 비용"만 보라 */
+:root[data-skin="lavender"] .tile { background: var(--surface); border: 1px solid var(--border); }
+:root[data-skin="lavender"] .tile-value { font-weight: 800; letter-spacing: -0.02em; }
+:root[data-skin="lavender"] .tile[data-k="cost"] .tile-value { color: var(--accent); }
+:root[data-skin="lavender"] .tile.is-flash { animation: ra-lav-tile-flash 900ms var(--ease); }
+@keyframes ra-lav-tile-flash { 0% { background: var(--accent-soft); } 100% { background: var(--surface); } }
+
+/* 활동 기록의 단계 태그 (경고 줄 살구 · 오류 줄 코랄은 토큰으로 따라온다) */
+:root[data-skin="lavender"] .feed-stage { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+/* 계획 검토 띠 · 종료 카드: 정보 --accent-soft · 주의 --warning-soft · 오류 --critical-soft (토큰으로 따라온다) */
+
+/* ───────── 4.7 결과 화면 ───────── */
+/* 위에 붙는 탭 줄: 오로라 위에서 띠가 도드라지지 않게 살짝 비친다(지원 안 되면 불투명 --bg) */
+:root[data-skin="lavender"] .result-tabs {
+  background: var(--bg);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+}
+/* 탭: 고른 탭은 보라 700 + 아래 3px 그라데이션 막대 */
+:root[data-skin="lavender"] .tab[aria-selected="true"] { color: var(--accent); font-weight: 700; border-bottom-color: transparent; }
+:root[data-skin="lavender"] .tab[aria-selected="true"]::after {
+  content: ""; position: absolute; left: var(--sp-2); right: var(--sp-2); bottom: -1px; height: 3px;
+  border-radius: 3px 3px 0 0; background: var(--grad-primary); pointer-events: none;
+}
+
+/* 보고서 본문 제목: 표시 글꼴 (h2 왼쪽 막대는 넣지 않는다) */
+:root[data-skin="lavender"] .prose h1,
+:root[data-skin="lavender"] .prose h2,
+:root[data-skin="lavender"] .prose h3 { font-family: var(--font-display); }
+:root[data-skin="lavender"] .prose h1 { font-weight: 800; letter-spacing: -0.025em; }
+:root[data-skin="lavender"] .prose h2,
+:root[data-skin="lavender"] .prose h3 { font-weight: 700; }
+
+/* 인용 칩 */
+:root[data-skin="lavender"] a.cite { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+:root[data-skin="lavender"] a.cite:hover,
+:root[data-skin="lavender"] a.cite[aria-expanded="true"] { background: var(--cite-hover); color: var(--accent-hover); }
+/* 목차 현재 항목(보라 + --accent-soft) · 근거 표 · 필터 · 차트 · 판정 배지(지지 민트 · 부분 살구 · 불일치 코랄)는 토큰으로 따라온다 */
+
+/* ───────── 4.8 창 · 알림 · 메뉴 ───────── */
+:root[data-skin="lavender"] .modal { border-radius: var(--r-xl); }
+:root[data-skin="lavender"] .modal-title { font-family: var(--font-display); font-weight: 700; letter-spacing: -0.01em; }
+/* 메뉴 · 팝오버: 모서리 --r-lg · --shadow-pop (공용 규칙이 토큰으로 쓴다) */
+
+/* 토스트: 진한 보라 바탕 · 흰 글자 (밝은/어두운 화면 모두 같은 모양) */
+:root[data-skin="lavender"] .toast {
+  background: var(--toast-bg); color: #F4F0FF; border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop), 0 0 0 1px var(--toast-edge);
+}
+:root[data-skin="lavender"] .toast-success > .icon { color: #3FD4BF; }
+:root[data-skin="lavender"] .toast-error > .icon { color: #FF8370; }
+:root[data-skin="lavender"] .toast-info > .icon { color: #C9B8FD; }
+:root[data-skin="lavender"] .toast-close { color: #CFC5EE; }
+:root[data-skin="lavender"] .toast-close:hover { background: rgba(255, 255, 255, 0.12); color: #FFFFFF; }
+:root[data-skin="lavender"] .toast-action { color: #FFFFFF; border-color: rgba(255, 255, 255, 0.28); }
+:root[data-skin="lavender"] .toast-action:hover { background: rgba(255, 255, 255, 0.12); }
+:root[data-skin="lavender"] .toast :focus-visible { outline-color: #C9B8FD; }
+
+/* 위쪽 띠(테스트 모드): 바탕 --accent-soft, 글자 --text */
+:root[data-skin="lavender"] .banner-mock { background: var(--accent-soft); color: var(--text); }
+/* 시작 오류 · 탭 안내 카드의 로고 타일은 위 .logo 규칙(그라데이션) */
+:root[data-skin="lavender"] .boot-error-title { font-family: var(--font-display); font-weight: 800; letter-spacing: -0.02em; }
+
+/* ───────── 5. 강제 색상 · 인쇄: 그라데이션 글자 대신 일반 글자색 ───────── */
+@media (forced-colors: active) {
+  :root[data-skin="lavender"] .home-top .page-title {
+    background: none; color: CanvasText; -webkit-text-fill-color: currentColor;
+  }
+  :root[data-skin="lavender"] .tab[aria-selected="true"] { border-bottom-color: Highlight; }
+  :root[data-skin="lavender"] .tab[aria-selected="true"]::after { display: none; }
+  :root[data-skin="lavender"] .side .hist-li:has(> .hist-item.is-current)::before { background: Highlight; }
+}
+@media print {
+  :root[data-skin="lavender"] .home-top .page-title {
+    background: none; color: var(--text); -webkit-text-fill-color: currentColor;
+  }
+  :root[data-skin="lavender"] .app-main { background-image: none; }
+  /* :has()를 모르는 브라우저가 위 규칙까지 버리지 않게 따로 적는다 */
+  :root[data-skin="lavender"] .app-main:has(.home) { background-image: none; }
+}

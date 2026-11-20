@@ -271,3 +271,6 @@ body.has-runbar .toasts { bottom: calc(var(--composer-h, 210px) + var(--sp-3)); 
   .home.is-panel-open .sp-scrim { animation: none; }
   .ck, .ck-box { transition: none; }
 }
+
+/* 라벤더 디자인의 처음 화면 머리띠(compose.js .hero-eyebrow): 기본(classic)에서는 숨기고 skin-lavender.css가 보인다 */
+.hero-eyebrow { display: none; }

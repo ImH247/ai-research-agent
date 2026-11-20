@@ -784,6 +784,11 @@ export function mountCompose(container) {
       h('div', { class: 'home-top' },
         onboarding.el,
         h('header', { class: 'page-head' },
+          // 라벤더 디자인의 머리띠(DESIGN_LAVENDER 4.4). classic에서는 home.css가 숨긴다.
+          h('div', { class: 'hero-eyebrow' },
+            h('span', { class: 'hero-eyebrow-dots', 'aria-hidden': 'true' },
+              h('span', { class: 'hero-eyebrow-dot' }), h('span', { class: 'hero-eyebrow-dot' }), h('span', { class: 'hero-eyebrow-dot' })),
+            h('span', { class: 'hero-eyebrow-text' }, '8단계로 조사하는 AI 연구 에이전트')),
           h('h1', { class: 'page-title' }, '무엇을 조사할까요?'),
           h('p', { class: 'page-sub' }, '주제를 적으면 에이전트가 하위 질문을 세우고 학술 문헌을 찾아 읽은 뒤, 인용을 검증한 보고서를 씁니다.')),
         prefill ? h('div', { class: 'note note-info home-note' }, icon('refresh', 16), h('span', null, '이전 조사의 주제와 설정을 불러왔습니다. 고칠 부분을 고친 뒤 시작하세요.')) : null),

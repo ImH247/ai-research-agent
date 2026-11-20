@@ -40,4 +40,16 @@
 npx esbuild tools/vendor-entries/markdown-it.mjs --bundle --format=esm --platform=browser --minify --outfile=vendor/markdown-it.js
 ```
 
+## 글꼴 (Fonts)
+
+라벤더 디자인(기본 스킨)이 쓰는 글꼴은 `assets/fonts/`에 함께 배포합니다(외부 글꼴 서버를 쓰지 않습니다). 선언은 `assets/fonts/fonts.css`에 있고,
+지금 디자인(클래식 스킨)이 쓰는 이름과 겹치지 않도록 글꼴 이름만 `"RA Pretendard"`, `"RA Outfit"`으로 바꿔 선언했습니다(글꼴 파일은 고치지 않았습니다).
+
+| 글꼴 | 버전 | 라이선스 | 들어 있는 파일 | 사용하는 곳 |
+|---|---|---|---|---|
+| [Pretendard Variable](https://github.com/orioncactus/pretendard) (npm `pretendard`) | 1.3.9 | OFL-1.1 (Reserved Font Name Pretendard) | `assets/fonts/pretendard/pv-*.woff2` (동적 서브셋 92개, 원래 이름 `PretendardVariable.subset.N.woff2`) | 라벤더 스킨의 본문·UI 글꼴 (`--font-sans`) |
+| [Outfit Variable](https://github.com/Outfitio/Outfit-Fonts) (npm `@fontsource-variable/outfit`) | 5.3.0 | OFL-1.1 | `assets/fonts/outfit/outfit-latin.woff2` (latin 조각, 원래 이름 `outfit-latin-wght-normal.woff2`) | 라벤더 스킨의 제목·숫자·워드마크 영문/숫자 (`--font-display`) |
+
+라이선스 원문: `vendor/licenses/pretendard--LICENSE.txt`, `vendor/licenses/outfit--LICENSE.txt`.
+
 문헌 검색에 쓰는 공개 API: [OpenAlex](https://openalex.org) (CC0 데이터), [Semantic Scholar](https://www.semanticscholar.org/product/api), [Europe PMC](https://europepmc.org/RestfulWebService).

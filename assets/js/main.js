@@ -6,7 +6,7 @@ import {
 } from './api.js';
 import {
   store, getApiKey, setApiKey, clearApiKey, isKeyRemembered, keyTail, saveTheme, demoSpeedPref,
-  sidebarOpenPref, saveSidebarOpen,
+  sidebarOpenPref, saveSidebarOpen, saveSkin,
 } from './store.js';
 import {
   h, icon, button, setBusy, toast, modal, emptyState, clear, str, arr, obj, ACTIVE_STATUSES, uid,
@@ -138,6 +138,43 @@ function themeControl({ compact = false } = {}) {
   return [wrap, unsub];
 }
 
+// ───────────────────────── 디자인(스킨) ─────────────────────────
+// DESIGN_LAVENDER 3절. boot.js가 첫 화면 전에 <html data-skin>과 파비콘을 정하고, 설정 창에서 바꾸면 여기서 바로 적용한다.
+
+function applySkin(skin) {
+  const s = skin === 'classic' ? 'classic' : 'lavender';
+  document.documentElement.dataset.skin = s;
+  const link = document.querySelector('link[rel="icon"]');
+  const href = link?.getAttribute(`data-href-${s}`); // boot.js가 남겨 둔 두 주소(없으면 그대로 둔다)
+  if (link && href && link.getAttribute('href') !== href) link.setAttribute('href', href);
+}
+
+function setSkin(skin) {
+  const s = saveSkin(skin);
+  applySkin(s);
+}
+
+const SKIN_OPTS = [
+  ['lavender', '라벤더'],
+  ['classic', '클래식'],
+];
+
+/** 2칸 디자인 세그먼트(설정 창). 구독 해제 함수를 함께 돌려준다. */
+function skinControl() {
+  const wrap = h('div', { class: 'seg theme-seg skin-seg', role: 'group', 'aria-label': '디자인' });
+  const render = () => {
+    const skin = store.get().skin;
+    wrap.replaceChildren(...SKIN_OPTS.map(([id, label]) => h('button', {
+      type: 'button', class: 'seg-btn', 'aria-label': `디자인: ${label}`,
+      'aria-pressed': skin === id ? 'true' : 'false',
+      onClick: () => setSkin(id),
+    }, h('span', { 'aria-hidden': 'true' }, label))));
+  };
+  render();
+  const unsub = store.subscribe((s, p) => { if (s.skin !== p.skin) render(); });
+  return [wrap, unsub];
+}
+
 /** 접은 사이드바의 테마 버튼: 누를 때마다 라이트 → 다크 → 시스템 순환. 구독 해제 함수를 함께 돌려준다. */
 function themeCycleButton() {
   const btn = h('button', { type: 'button', class: 'btn btn-ghost btn-icon side-btn side-theme-cycle' });
@@ -240,6 +277,10 @@ export function openKeyDialog(opts = {}) {
   const keyTitleId = uid('set-key');
   const themeTitleId = uid('set-theme');
   const [themeSeg, unsubTheme] = themeControl();
+  const skinTitleId = uid('set-skin');
+  const skinHintId = uid('set-skin-hint');
+  const [skinSeg, unsubSkin] = skinControl();
+  skinSeg.setAttribute('aria-describedby', skinHintId);
   const keySection = h('section', { class: 'settings-sec key-form', 'aria-labelledby': keyTitleId },
     h('h3', { class: 'settings-sec-title', id: keyTitleId }, 'API 키'),
     h('div', { class: 'note note-info' }, icon('shield-check', 16),
@@ -263,12 +304,16 @@ export function openKeyDialog(opts = {}) {
   const themeSection = h('section', { class: 'settings-sec', 'aria-labelledby': themeTitleId },
     h('h3', { class: 'settings-sec-title', id: themeTitleId }, '화면 테마'),
     themeSeg);
-  const body = h('div', { class: 'settings-form' }, keySection, themeSection);
+  const skinSection = h('section', { class: 'settings-sec', 'aria-labelledby': skinTitleId },
+    h('h3', { class: 'settings-sec-title', id: skinTitleId }, '디자인'),
+    skinSeg,
+    h('p', { class: 'field-hint', id: skinHintId }, '클래식은 이전 디자인입니다.'));
+  const body = h('div', { class: 'settings-form' }, keySection, themeSection, skinSection);
 
   dlg = modal({
     title: '설정',
     body,
-    onClose: () => { unsub(); unsubTheme(); },
+    onClose: () => { unsub(); unsubTheme(); unsubSkin(); },
     actions: [
       {
         label: '지우기', kind: 'ghost', icon: 'trash',
@@ -803,6 +848,7 @@ let wired = false; // 창 전체 이벤트는 한 번만 단다
 async function boot() {
   const root = document.getElementById('app');
   applyTheme(store.get().theme);
+  applySkin(store.get().skin);
   let config;
   try {
     const started = await startBackend();
