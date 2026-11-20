@@ -83,8 +83,7 @@ export const store = createStore({
   prefill: null,         // "같은 설정으로 다시 조사": {prompt, config}
   serverDown: false,     // (예전 서버 연결 실패 띠 — 브라우저 버전에서는 쓰지 않음)
   onboardingDismissed: loadOnboardingDismissed(), // 처음 사용 안내 "다시 보지 않기"
-  historyQuery: '',      // 기록 검색어
-  historyExpanded: false, // 처음 화면 기록 "모두 보기" 펼침(메모리만)
+  historyQuery: '',      // 기록 검색어(왼쪽 사이드바 기록)
 });
 
 // ───────────────────────── API 키 ─────────────────────────
@@ -155,7 +154,8 @@ export function saveTheme(theme) {
 
 /**
  * 마지막으로 쓴 모델·깊이·형식·옵션과 편의 설정.
- * 약속된 키(WEB_FEATURES): notify(boolean), maxCost(number|null, 사용자가 직접 정한 한도만), demoSpeed(1|5).
+ * 약속된 키(WEB_FEATURES): notify(boolean), maxCost(number|null, 사용자가 직접 정한 한도만), demoSpeed(1|5),
+ * sidebarOpen(boolean, LAYOUT_V3 1절: 넓은 화면에서 왼쪽 사이드바를 펼쳐 둘지).
  */
 export function loadPrefs() {
   return loadJSON(KEYS.prefs, {});
@@ -188,6 +188,17 @@ export function getPref(name, fallback = null) {
 /** 데모 재생 속도(1 또는 5) */
 export function demoSpeedPref() {
   return Number(getPref('demoSpeed', 1)) === 5 ? 5 : 1;
+}
+
+/** 왼쪽 사이드바 펼침 저장값(prefs.sidebarOpen). 저장한 적이 없으면 null — 그때는 화면 폭으로 정한다. */
+export function sidebarOpenPref() {
+  const v = getPref('sidebarOpen', null);
+  return typeof v === 'boolean' ? v : null;
+}
+
+/** 사용자가 사이드바를 접거나 펼쳤을 때만 저장한다(좁은 화면의 서랍은 저장하지 않는다) */
+export function saveSidebarOpen(open) {
+  savePrefs({ sidebarOpen: !!open });
 }
 
 function loadOnboardingDismissed() {

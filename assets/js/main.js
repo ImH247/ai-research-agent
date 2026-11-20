@@ -1,11 +1,12 @@
-// 시작점: 백엔드 시작(한 탭 잠금), 설정 로드, 테마, API 키 상태, 셸(왼쪽 레일·설정 창·안내 띠), 해시 라우터,
-// 조사 파일 열기(끌어다 놓기 포함), 떠나기 경고. 조사 기록 목록은 history.js(처음 화면 아래쪽)가 그린다.
+// 시작점: 백엔드 시작(한 탭 잠금), 설정 로드, 테마, API 키 상태, 셸(왼쪽 사이드바·좁은 화면 위쪽 바와 서랍·설정 창·안내 띠),
+// 해시 라우터, 조사 파일 열기(끌어다 놓기 포함), 떠나기 경고. 사이드바의 조사 기록 목록은 history.js가 그린다.
 
 import {
   api, ApiError, MOCK, startBackend, canTakeOver, yieldTab, TAB_CHANNEL,
 } from './api.js';
 import {
   store, getApiKey, setApiKey, clearApiKey, isKeyRemembered, keyTail, saveTheme, demoSpeedPref,
+  sidebarOpenPref, saveSidebarOpen,
 } from './store.js';
 import {
   h, icon, button, setBusy, toast, modal, emptyState, clear, str, arr, obj, ACTIVE_STATUSES, uid,
@@ -13,12 +14,14 @@ import {
 import { mountCompose } from './views/compose.js';
 import { mountRun } from './views/run.js';
 import { openHelp, startDemo } from './onboarding.js';
+import { mountHistory } from './history.js';
 
 const APP_NAME = 'AI Research Agent';
 const RUN_TABS = new Set(['report', 'evidence', 'verify', 'process', 'qa']);
 const KEY_CONSOLE_URL = 'https://console.anthropic.com/settings/keys';
 const MAX_RUN_FILE = 20 * 1024 * 1024;
-const NARROW_QUERY = '(max-width: 899px)'; // app.css 21번의 좁은 화면 기준과 같다
+const NARROW_QUERY = '(max-width: 899px)'; // app.css 21번의 좁은 화면(위쪽 바 + 서랍) 기준과 같다
+const SIDE_OPEN_MIN_WIDTH = 1280;          // 저장값이 없을 때 이 폭 이상이면 사이드바를 펼친 채 시작한다
 
 let shell = null;        // 셸 요소 참조
 let current = null;      // {key, unmount}
@@ -67,7 +70,7 @@ function route(force = false) {
   void main.offsetWidth;
   main.classList.add('is-entering');
   const container = h('div', { class: 'view' });
-  // 진행·결과 화면: 왼쪽 기록이 없으므로 맨 위에 "← 처음 화면" 링크를 둔다.
+  // 진행·결과 화면: 맨 위에 "← 처음 화면" 링크를 둔다(사이드바를 접었거나 좁은 화면일 때도 바로 돌아갈 수 있게).
   // run.js는 받은 상자의 내용을 통째로 바꾸므로(replaceChildren) 링크와 화면 내용을 따로 담는다.
   let target = container;
   if (r.name === 'run') {
@@ -116,25 +119,28 @@ const THEME_OPTS = [
   ['system', 'monitor', '시스템 설정'],
 ];
 
-/** 설정 창의 3칸 테마 세그먼트. 창이 닫힐 때 부를 구독 해제 함수를 함께 돌려준다. */
-function themeControl() {
-  const wrap = h('div', { class: 'seg theme-seg', role: 'group', 'aria-label': '테마' });
+/**
+ * 3칸 테마 세그먼트(설정 창·펼친 사이드바가 같은 상태를 쓴다). compact면 아이콘만(사이드바).
+ * 구독 해제 함수를 함께 돌려준다.
+ */
+function themeControl({ compact = false } = {}) {
+  const wrap = h('div', { class: ['seg', 'theme-seg', compact ? 'seg-icons' : ''], role: 'group', 'aria-label': '테마' });
   const render = () => {
     const theme = store.get().theme;
     wrap.replaceChildren(...THEME_OPTS.map(([id, ic, label]) => h('button', {
       type: 'button', class: 'seg-btn', title: label, 'aria-label': `테마: ${label}`,
       'aria-pressed': theme === id ? 'true' : 'false',
       onClick: () => setTheme(id),
-    }, icon(ic, 16), h('span', { 'aria-hidden': 'true' }, label))));
+    }, icon(ic, compact ? 15 : 16), compact ? null : h('span', { 'aria-hidden': 'true' }, label))));
   };
   render();
   const unsub = store.subscribe((s, p) => { if (s.theme !== p.theme) render(); });
   return [wrap, unsub];
 }
 
-/** 레일의 테마 버튼: 누를 때마다 라이트 → 다크 → 시스템 순환 */
+/** 접은 사이드바의 테마 버튼: 누를 때마다 라이트 → 다크 → 시스템 순환. 구독 해제 함수를 함께 돌려준다. */
 function themeCycleButton() {
-  const btn = h('button', { type: 'button', class: 'rail-btn rail-theme' });
+  const btn = h('button', { type: 'button', class: 'btn btn-ghost btn-icon side-btn side-theme-cycle' });
   const idx = () => Math.max(0, THEME_OPTS.findIndex(([id]) => id === store.get().theme));
   const render = () => {
     const [, ic, label] = THEME_OPTS[idx()];
@@ -146,8 +152,8 @@ function themeCycleButton() {
   };
   btn.addEventListener('click', () => setTheme(THEME_OPTS[(idx() + 1) % THEME_OPTS.length][0]));
   render();
-  store.subscribe((s, p) => { if (s.theme !== p.theme) render(); });
-  return btn;
+  const unsub = store.subscribe((s, p) => { if (s.theme !== p.theme) render(); });
+  return [btn, unsub];
 }
 
 // ───────────────────────── API 키 ─────────────────────────
@@ -308,24 +314,32 @@ export function openKeyDialog(opts = {}) {
   return dlg;
 }
 
-/** 레일의 설정 버튼: 톱니 아이콘 + 오른쪽 위 키 상태 점. 누르면 설정 창(API 키). */
-function settingsButton() {
-  const btn = h('button', { type: 'button', class: 'rail-btn rail-settings', 'aria-haspopup': 'dialog', onClick: () => openKeyDialog() });
+/**
+ * 사이드바의 설정 버튼(button.side-key): 톱니 아이콘 + 키 상태 점, "설정 · API 키 ··1234"와 상태 문구.
+ * 접은 상태에서는 글자를 화면에서만 숨기므로(.side-label) 이름은 그대로 읽힌다. 누르면 설정 창(API 키).
+ * 구독 해제 함수를 함께 돌려준다.
+ */
+function sideKeyButton() {
+  const btn = h('button', { type: 'button', class: 'side-key', 'aria-haspopup': 'dialog', onClick: () => openKeyDialog() });
   const render = () => {
     const ks = store.get().keyStatus;
     const t = keyStatusText(ks);
     // 키가 없으면 점이 눈에 띄게(주의 색) 보인다
     const tone = ks.state === 'none' ? 'warning' : t.tone;
-    btn.replaceChildren(icon('settings', 18), h('span', { class: ['status-dot', 'rail-dot', `tone-${tone}`], 'aria-hidden': 'true' }));
-    btn.setAttribute('aria-label', `설정: API 키 입력, ${t.sub}`);
+    btn.replaceChildren(
+      h('span', { class: 'side-key-icon', 'aria-hidden': 'true' },
+        icon('settings', 18), h('span', { class: ['status-dot', `tone-${tone}`] })),
+      h('span', { class: 'side-key-text side-label' },
+        h('span', { class: 'side-key-label' }, `설정 · ${t.label}`),
+        h('span', { class: 'side-key-sub' }, t.sub)));
     btn.title = `설정 (API 키: ${t.sub})`;
   };
   render();
-  store.subscribe((s, p) => { if (s.keyStatus !== p.keyStatus || s.config !== p.config) render(); });
-  return btn;
+  const unsub = store.subscribe((s, p) => { if (s.keyStatus !== p.keyStatus || s.config !== p.config) render(); });
+  return [btn, unsub];
 }
 
-// ───────────────────────── 기록 목록 (그리기는 history.js) ─────────────────────────
+// ───────────────────────── 기록 목록 (그리기는 history.js, 사이드바 안) ─────────────────────────
 
 /** 기록 목록을 다시 불러온다 */
 export async function refreshRuns() {
@@ -386,7 +400,7 @@ async function importFile(file) {
 
 let fileInput = null; // 숨은 파일 선택 칸(하나만 만들어 둔다)
 
-/** "조사 파일 열기": 파일 선택 창을 연다(history.js의 버튼이 부른다). 고른 파일은 importFile로 가져온다. */
+/** "조사 파일 열기": 파일 선택 창을 연다(사이드바 아래쪽 버튼이 부른다). 고른 파일은 importFile로 가져온다. */
 export function pickRunFile() {
   if (!fileInput || !fileInput.isConnected) {
     fileInput = h('input', {
@@ -463,44 +477,174 @@ function renderBanners() {
   shell.banners.replaceChildren(...items);
 }
 
-/** 왼쪽 레일(좁은 화면에서는 위쪽 가로 바): 로고 · 새 조사 · (빈 공간) · 도움말 · 설정 · 테마 */
-function renderRail() {
-  const logo = h('a', { class: 'rail-btn rail-logo', href: '#/', 'aria-label': `${APP_NAME} 처음 화면`, title: APP_NAME },
-    h('span', { class: 'logo' }, icon('logo', 16)),
-    h('span', { class: 'rail-wordmark', 'aria-hidden': 'true' }, APP_NAME));
-  const newBtn = h('a', {
-    class: 'rail-btn rail-new', href: '#/', 'aria-label': '새 조사', title: '새 조사',
-    onClick: () => { if (location.hash === '#/' || !location.hash) navigate('#/'); },
-  }, icon('plus', 18));
-  const helpBtn = h('button', {
-    type: 'button', class: 'rail-btn rail-help', 'aria-label': '도움말', title: '처음 사용 안내를 다시 봅니다',
-    onClick: () => openHelp(),
-  }, icon('help', 18));
-  const rail = h('nav', { class: 'rail', 'aria-label': '주 메뉴' },
-    logo, newBtn, h('span', { class: 'rail-spacer', 'aria-hidden': 'true' }), helpBtn, settingsButton(), themeCycleButton());
+// ── 왼쪽 사이드바 aside.side (LAYOUT_V3 1절) ──
+// 넓은 화면: div.app.is-side-open이면 펼침(--side-w), 아니면 아이콘 줄(--rail-w). prefs.sidebarOpen에 저장한다.
+// 좁은 화면(≤899px): 위쪽 바(header.topbar)의 메뉴 버튼으로 여는 서랍(body.drawer-open). 서랍은 늘 펼친 모양이고 저장하지 않는다.
 
-  // 좁은 화면에서는 레일이 위쪽 바가 된다. result.js는 '.topbar'의 높이로 고정 탭 줄 위치를 맞추므로
-  // 그때만 같은 표시 클래스를 붙인다(넓은 화면의 세로 레일은 위쪽을 가리지 않는다).
-  let mq = null;
-  try { mq = window.matchMedia(NARROW_QUERY); } catch { mq = null; }
-  const syncTopbar = () => rail.classList.toggle('topbar', !!mq?.matches);
-  syncTopbar();
-  try { mq?.addEventListener('change', syncTopbar); } catch { /* 오래된 브라우저: 처음 값만 쓴다 */ }
-  return rail;
+function isNarrow() {
+  return !!shell?.mq?.matches;
+}
+
+/** 접은 상태에서 보이지 않는 것(기록 목록·검색·조사 파일 열기·테마 세그먼트)은 초점도 받지 않게 한다 */
+function syncSideInert() {
+  if (!shell) return;
+  const collapsed = !isNarrow() && !shell.sideOpen;
+  for (const el of shell.collapsibles) el.inert = collapsed;
+}
+
+/** 넓은 화면의 펼침/접힘. save=true면 사용자가 고른 값으로 저장한다. */
+function setSideOpen(open, save = false) {
+  if (!shell) return;
+  shell.sideOpen = !!open;
+  shell.app.classList.toggle('is-side-open', shell.sideOpen);
+  const t = shell.sideToggle;
+  const label = shell.sideOpen ? '사이드바 접기' : '사이드바 펼치기 (조사 기록)';
+  t.setAttribute('aria-expanded', shell.sideOpen ? 'true' : 'false');
+  t.setAttribute('aria-label', label);
+  t.title = label;
+  t.replaceChildren(icon(shell.sideOpen ? 'panel-left-close' : 'panel-left-open', 18));
+  if (save) saveSidebarOpen(shell.sideOpen);
+  syncSideInert();
+}
+
+function openDrawer() {
+  if (!shell || !isNarrow()) return;
+  document.body.classList.add('drawer-open');
+  shell.menuBtn.setAttribute('aria-expanded', 'true');
+  shell.appMain.inert = true; // 서랍이 열려 있는 동안 뒤쪽(위쪽 바·띠·본문)은 초점과 보조 기술에서 빠진다
+  syncSideInert();
+  try { shell.sideNew.focus({ preventScroll: true }); } catch { /* 무시 */ }
+}
+
+/** 서랍을 닫는다(Esc · 가림막 · 닫기 버튼 · 화면 이동). focus면 초점을 메뉴 버튼으로 돌려준다. */
+function closeDrawer({ focus = true } = {}) {
+  if (!shell || !document.body.classList.contains('drawer-open')) return;
+  document.body.classList.remove('drawer-open');
+  shell.menuBtn.setAttribute('aria-expanded', 'false');
+  shell.appMain.inert = false;
+  if (focus && isNarrow()) {
+    try { shell.menuBtn.focus({ preventScroll: true }); } catch { /* 무시 */ }
+  }
+}
+
+function wordmark() {
+  return h('a', { class: 'wordmark', href: '#/', 'aria-label': `${APP_NAME} 처음 화면`, title: APP_NAME },
+    h('span', { class: 'logo' }, icon('logo', 16)),
+    h('span', { class: 'wordmark-text', 'aria-hidden': 'true' }, APP_NAME));
+}
+
+/** "새 조사": 이미 처음 화면이면 화면을 다시 그린다(해시가 그대로라 hashchange가 오지 않는다) */
+function onNewClick() {
+  if (location.hash === '#/' || !location.hash) navigate('#/');
+}
+
+/**
+ * 펼친 상태: 머리(워드마크 · 접기) · 새 조사 · 기록 · 아래쪽(조사 파일 열기 · 도움말 · 설정 · 테마).
+ * 접은 상태: 로고 · 펼치기 · 새 조사 · (빈 공간) · 도움말 · 설정 · 테마 순환 — 같은 요소에서 글자만 숨긴다(app.css).
+ */
+function renderSide(cleanups) {
+  const toggle = h('button', {
+    type: 'button', class: 'btn btn-ghost btn-icon btn-sm side-btn side-toggle', 'aria-controls': 'side',
+    onClick: () => setSideOpen(!shell?.sideOpen, true),
+  });
+  const closeBtn = h('button', {
+    type: 'button', class: 'btn btn-ghost btn-icon btn-sm side-close', 'aria-label': '메뉴 닫기', title: '메뉴 닫기',
+    onClick: () => closeDrawer(),
+  }, icon('x', 16));
+  const newBtn = h('a', { class: 'btn btn-primary side-btn side-new', href: '#/', title: '새 조사', onClick: onNewClick },
+    icon('plus', 16), h('span', { class: 'btn-label side-label' }, '새 조사'));
+
+  const history = mountHistory();
+  cleanups.push(() => history.destroy());
+
+  const openFile = h('button', {
+    type: 'button', class: 'btn btn-ghost btn-sm side-tool side-open-file',
+    title: '저장해 둔 조사 파일(.json)을 엽니다. 창에 끌어다 놓아도 됩니다.',
+    onClick: () => { closeDrawer(); pickRunFile(); },
+  }, icon('folder-open', 16), h('span', { class: 'btn-label' }, '조사 파일 열기'));
+  const helpBtn = h('button', {
+    type: 'button', class: 'btn btn-ghost btn-sm side-btn side-tool side-help', title: '처음 사용 안내를 다시 봅니다',
+    onClick: () => { closeDrawer(); openHelp(); },
+  }, icon('help', 16), h('span', { class: 'btn-label side-label' }, '도움말'));
+  const [keyBtn, unsubKey] = sideKeyButton();
+  const [themeSeg, unsubTheme] = themeControl({ compact: true });
+  const themeRow = h('div', { class: 'side-theme' },
+    h('span', { class: 'side-theme-label', 'aria-hidden': 'true' }, '화면 테마'), themeSeg);
+  const [themeCycle, unsubCycle] = themeCycleButton();
+  cleanups.push(unsubKey, unsubTheme, unsubCycle);
+
+  const side = h('aside', { class: 'side', id: 'side', 'aria-label': '사이드바' },
+    h('div', { class: 'side-head' }, wordmark(), toggle, closeBtn),
+    newBtn,
+    history.el,
+    h('div', { class: 'side-foot' },
+      h('div', { class: 'side-tools' }, openFile, helpBtn),
+      keyBtn,
+      themeRow,
+      themeCycle));
+  // 서랍 안의 링크(새 조사 · 워드마크 · 기록 항목)를 누르면 서랍을 닫는다. 같은 실행을 다시 눌러 해시가 그대로여도 닫힌다.
+  side.addEventListener('click', (e) => {
+    if (e.target instanceof Element && e.target.closest('a[href]')) closeDrawer();
+  });
+  return { side, toggle, newBtn, collapsibles: [history.el, openFile, themeRow] };
+}
+
+/** 좁은 화면의 위쪽 바: 메뉴 · 로고 · 워드마크 · 새 조사. result.js가 '.topbar' 높이로 고정 탭 줄 위치를 맞춘다. */
+function renderTopbar() {
+  const menuBtn = h('button', {
+    type: 'button', class: 'btn btn-ghost btn-icon topbar-menu', 'aria-label': '메뉴 열기', title: '메뉴 (조사 기록)',
+    'aria-controls': 'side', 'aria-expanded': 'false', onClick: openDrawer,
+  }, icon('menu', 18));
+  const topbar = h('header', { class: 'topbar' }, menuBtn, wordmark(),
+    h('a', { class: 'btn btn-secondary btn-sm topbar-new', href: '#/', onClick: onNewClick },
+      icon('plus', 14), h('span', { class: 'btn-label' }, '새 조사')));
+  return { topbar, menuBtn };
 }
 
 function renderShell(root) {
+  const cleanups = [];
   const banners = h('div', { class: 'banners' });
   const main = h('main', { class: 'main', id: 'main', tabindex: '-1' });
+  const s = renderSide(cleanups);
+  const { topbar, menuBtn } = renderTopbar();
+  const scrim = h('div', { class: 'side-scrim', 'aria-hidden': 'true', onClick: () => closeDrawer() });
+  const appMain = h('div', { class: 'app-main' }, topbar, banners, main);
+  const saved = sidebarOpenPref();
+  const open = saved ?? window.innerWidth >= SIDE_OPEN_MIN_WIDTH;
+  // 처음부터 클래스를 붙여 두어 시작할 때 폭 전환이 보이지 않게 한다
+  const app = h('div', { class: ['app', open ? 'is-side-open' : ''] }, s.side, scrim, appMain);
 
   root.replaceChildren(
     h('a', { class: 'skip-link', href: '#main', onClick: (e) => { e.preventDefault(); main.focus(); } }, '본문으로 건너뛰기'),
-    h('div', { class: 'app' }, renderRail(), h('div', { class: 'app-main' }, banners, main)));
+    app);
 
-  shell = { main, banners };
-  store.subscribe((s, p) => {
-    if (s.config !== p.config) renderBanners();
-  });
+  let mq = null;
+  try { mq = window.matchMedia(NARROW_QUERY); } catch { mq = null; }
+  shell = {
+    main, banners, app, appMain, menuBtn, mq, cleanups,
+    side: s.side, sideToggle: s.toggle, sideNew: s.newBtn, collapsibles: s.collapsibles, sideOpen: open,
+  };
+  setSideOpen(open);
+
+  const onKey = (e) => {
+    if (e.key !== 'Escape' || e.defaultPrevented || !document.body.classList.contains('drawer-open')) return;
+    if (document.querySelector('.modal-root, .popover')) return; // 창·메뉴가 먼저 닫힌다
+    closeDrawer();
+    e.preventDefault(); // 같은 Esc가 화면 쪽 처리(조사 설정 시트 닫기 등)로 한 번 더 넘어가지 않게 한다
+  };
+  const onHash = () => closeDrawer();
+  const onMq = () => {
+    if (!isNarrow()) closeDrawer({ focus: false }); // 넓어지면 서랍 상태를 거둔다
+    syncSideInert();
+  };
+  document.addEventListener('keydown', onKey);
+  window.addEventListener('hashchange', onHash);
+  try { mq?.addEventListener('change', onMq); } catch { /* 오래된 브라우저: 처음 값만 쓴다 */ }
+  cleanups.push(
+    () => document.removeEventListener('keydown', onKey),
+    () => window.removeEventListener('hashchange', onHash),
+    () => { try { mq?.removeEventListener('change', onMq); } catch { /* 무시 */ } },
+    store.subscribe((s2, p) => { if (s2.config !== p.config) renderBanners(); }));
   renderBanners();
 }
 
@@ -624,9 +768,13 @@ function stopThisTab() {
     try { current.unmount(); } catch (err) { console.error(err); }
   }
   current = null;
+  // 사이드바 기록(구독·타이머·hashchange)·설정 버튼·테마·서랍 이벤트를 정리한다
+  for (const fn of shell?.cleanups || []) {
+    try { fn(); } catch (err) { console.error(err); }
+  }
   shell = null;
   for (const el of document.querySelectorAll('.modal-root, .popover')) el.remove();
-  document.body.classList.remove('has-modal', 'has-runbar');
+  document.body.classList.remove('has-modal', 'drawer-open', 'has-runbar');
   delete document.body.dataset.view;
 }
 

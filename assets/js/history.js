@@ -1,5 +1,5 @@
-// 조사 기록(LAYOUT_V2 2절): 처음 화면 아래쪽의 카드 격자 — 검색, 조사 파일 열기, 새로 고침, 모두 보기,
-// 항목 메뉴(이름 바꾸기 · 조사 파일 저장 · 삭제), 태그. main.js의 사이드바 기록 코드를 옮겨 온 것이다.
+// 조사 기록(LAYOUT_V3 1.3절): 왼쪽 사이드바의 세로 목록 — 검색, 새로 고침, 지금 보고 있는 실행 표시,
+// 항목 메뉴(이름 바꾸기 · 조사 파일 저장 · 삭제), 태그. main.js가 사이드바 안에 한 번 붙이고 페이지가 살아 있는 동안 쓴다.
 // main.js와 서로 가져오지만, main.js의 것은 함수 안에서만 쓴다(모듈 최상위에서 쓰지 않음).
 
 import { api, saveRunFile } from './api.js';
@@ -8,10 +8,16 @@ import {
   h, icon, setBusy, toast, modal, confirmDialog, menu, skeleton,
   fmtMinutes, fmtInt, stageLabel, str, arr, obj, num, STATUS_LABEL, ACTIVE_STATUSES, uid,
 } from './ui.js';
-import { refreshRuns, pickRunFile } from './main.js';
+import { refreshRuns, navigate } from './main.js';
 
 const MAX_TITLE = 80;
-const DEFAULT_LIMIT = 6;
+
+/** 주소의 #/run/<id>에서 지금 보고 있는 실행 id를 꺼낸다(없으면 '') */
+function currentRunId() {
+  const m = /^#\/run\/([^/?#]+)/.exec(globalThis.location?.hash || '');
+  if (!m) return '';
+  try { return decodeURIComponent(m[1]); } catch { return m[1]; }
+}
 
 function runTitle(r) {
   return str(r.custom_title).trim() || str(r.topic).trim() || str(r.prompt).trim() || '제목 없는 조사';
@@ -144,7 +150,8 @@ async function deleteRun(id, topic) {
   try {
     await api.remove(id);
     toast('기록을 삭제했습니다.', 'success');
-    // 처음 화면에 있으므로 이동하지 않고 목록만 새로 고친다
+    // 지운 실행을 보고 있었으면 처음 화면으로 간다. 아니면 지금 화면을 두고 목록만 새로 고친다.
+    if (currentRunId() === id) navigate('#/');
     refreshRuns();
   } catch (err) {
     toast(str(err?.message, '삭제하지 못했습니다.'), 'error');
@@ -157,12 +164,11 @@ function matchesQuery(r, q) {
 }
 
 /**
- * 처음 화면의 조사 기록 구역을 만든다.
- * @param {{limit?: number}} opts limit: 처음에 보여 줄 개수(기본 6). 검색 중에는 무시한다.
+ * 왼쪽 사이드바의 조사 기록 목록을 만든다(LAYOUT_V3 1.3). 카드 격자·"모두 보기" 없이 전부 보여 주고 목록만 스크롤된다.
+ * main.js가 사이드바 안에 한 번 붙인다. 넘겨준 탭(stopThisTab)에서는 destroy()로 구독·타이머·hashchange를 정리한다.
  * @returns {{el: HTMLElement, destroy: () => void}}
  */
-export function mountHistory(opts = {}) {
-  const limit = Math.max(1, Math.floor(Number(obj(opts).limit)) || DEFAULT_LIMIT);
+export function mountHistory() {
   const timers = new Set();
   const later = (fn, ms) => {
     const t = setTimeout(() => { timers.delete(t); fn(); }, ms);
@@ -172,13 +178,8 @@ export function mountHistory(opts = {}) {
   const cancel = (t) => { if (t) { clearTimeout(t); timers.delete(t); } };
   let destroyed = false;
 
-  const listId = uid('hist');
-  const count = h('span', { class: 'hh-count num', hidden: true });
-  const list = h('ul', { class: 'hist-list hist-grid', id: listId, 'aria-label': '조사 기록 목록' });
-  const moreBtn = h('button', {
-    type: 'button', class: 'hh-more btn btn-ghost btn-sm', hidden: true, 'aria-controls': listId, 'aria-expanded': 'false',
-    onClick: () => store.set({ historyExpanded: !store.get().historyExpanded }),
-  });
+  const count = h('span', { class: 'sh-count num', hidden: true });
+  const list = h('ul', { class: 'hist-list', id: uid('hist'), 'aria-label': '조사 기록 목록' });
 
   // 검색 입력(기존 .hist-search 그대로)
   const searchInput = h('input', {
@@ -203,24 +204,37 @@ export function mountHistory(opts = {}) {
   const search = h('div', { class: 'hist-search', role: 'search' },
     h('span', { class: 'hist-search-icon', 'aria-hidden': 'true' }, icon('search', 14)), searchInput, clearBtn);
 
-  const openBtn = h('button', {
-    type: 'button', class: 'btn btn-ghost btn-sm hh-tool',
-    title: '저장해 둔 조사 파일(.json)을 엽니다. 창에 끌어다 놓아도 됩니다.',
-    onClick: () => pickRunFile(),
-  }, icon('folder-open', 14), h('span', { class: 'btn-label' }, '조사 파일 열기'));
   const refreshBtn = h('button', {
-    type: 'button', class: 'btn btn-ghost btn-icon btn-sm hh-tool', 'aria-label': '기록 새로 고침', title: '새로 고침',
+    type: 'button', class: 'btn btn-ghost btn-icon btn-xs sh-refresh', 'aria-label': '기록 새로 고침', title: '새로 고침',
     onClick: () => refreshRuns(),
   }, icon('refresh', 14));
 
-  const el = h('section', { class: 'home-history', 'aria-label': '조사 기록' },
-    h('div', { class: 'hh-head' },
-      h('h2', { class: 'hh-title' }, '최근 조사', count),
-      h('div', { class: 'hh-tools' }, search, openBtn, refreshBtn)),
-    list,
-    moreBtn);
+  const el = h('section', { class: 'side-history', 'aria-label': '조사 기록' },
+    h('div', { class: 'sh-head' }, h('span', { class: 'sh-title' }, '기록'), count, refreshBtn),
+    search,
+    list);
+
+  /** 지금 보고 있는 실행 줄을 표시하고, reveal이면 목록 안에서 보이게 스크롤한다(창은 움직이지 않는다) */
+  function syncCurrent(reveal = false) {
+    const cur = currentRunId();
+    let hit = null;
+    for (const a of list.querySelectorAll('.hist-item')) {
+      const on = !!cur && a.dataset.id === cur;
+      a.classList.toggle('is-current', on);
+      if (on) { a.setAttribute('aria-current', 'page'); hit = a; } else a.removeAttribute('aria-current');
+    }
+    if (!reveal || !hit) return;
+    const box = list.getBoundingClientRect();
+    if (!box.height) return; // 접힌 사이드바·닫힌 서랍
+    const r = hit.getBoundingClientRect();
+    if (r.top < box.top) list.scrollTop -= box.top - r.top + 4;
+    else if (r.bottom > box.bottom) list.scrollTop += r.bottom - box.bottom + 4;
+  }
+  const onHash = () => syncCurrent(true);
+  window.addEventListener('hashchange', onHash);
 
   let retryTimer = 0;
+  let revealed = false;
   function render() {
     if (destroyed) return;
     // 항목 메뉴가 열려 있으면 닫힌 뒤에 다시 그린다
@@ -228,8 +242,7 @@ export function mountHistory(opts = {}) {
       if (!retryTimer) retryTimer = later(() => { retryTimer = 0; render(); }, 1500);
       return;
     }
-    const { runs, config, historyQuery, historyExpanded } = store.get();
-    moreBtn.hidden = true;
+    const { runs, config, historyQuery } = store.get();
     if (runs === null) {
       count.hidden = true;
       list.setAttribute('aria-busy', 'true');
@@ -245,32 +258,30 @@ export function mountHistory(opts = {}) {
       return;
     }
     const q = str(historyQuery).trim().toLocaleLowerCase();
-    let shown = all.filter((r) => matchesQuery(r, q));
+    const shown = all.filter((r) => matchesQuery(r, q));
     if (!shown.length) {
       list.replaceChildren(h('li', { class: 'hist-empty' }, '검색 결과가 없습니다'));
       return;
-    }
-    if (!q && shown.length > limit) {
-      const expanded = !!historyExpanded;
-      moreBtn.textContent = expanded ? '접기' : `기록 모두 보기 (${fmtInt(shown.length)}개)`;
-      moreBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-      moreBtn.hidden = false;
-      if (!expanded) shown = shown.slice(0, limit);
     }
     // 다시 그려도 키보드 초점이 있던 항목을 잃지 않게 한다
     const active = document.activeElement;
     const focusId = active && list.contains(active) ? active.closest('.hist-li')?.querySelector('.hist-item')?.dataset.id : null;
     const focusMore = !!(active && active.classList?.contains('hist-more'));
+    const scrollTop = list.scrollTop;
     list.replaceChildren(...shown.map((r) => historyItem(r, config)));
+    list.scrollTop = scrollTop;
     if (focusId) {
       const a = [...list.querySelectorAll('.hist-item')].find((x) => x.dataset.id === focusId);
       const target = focusMore ? a?.parentElement?.querySelector('.hist-more') : a;
       try { target?.focus({ preventScroll: true }); } catch { /* 무시 */ }
     }
+    // 처음 목록이 채워질 때만 지금 실행이 보이게 스크롤한다(주기적 새로 고침은 스크롤을 건드리지 않는다)
+    syncCurrent(!revealed);
+    revealed = true;
   }
 
   const unsub = store.subscribe((s, p) => {
-    if (s.runs !== p.runs || s.config !== p.config || s.historyQuery !== p.historyQuery || s.historyExpanded !== p.historyExpanded) render();
+    if (s.runs !== p.runs || s.config !== p.config || s.historyQuery !== p.historyQuery) render();
   });
   render();
 
@@ -279,6 +290,7 @@ export function mountHistory(opts = {}) {
     destroy() {
       destroyed = true;
       unsub();
+      window.removeEventListener('hashchange', onHash);
       for (const t of timers) clearTimeout(t);
       timers.clear();
     },

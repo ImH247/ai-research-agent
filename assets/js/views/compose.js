@@ -1,5 +1,6 @@
 // 처음 화면 (#/) — FRONTEND 4절 + WEB_FEATURES F1(처음 사용 안내), F2(주제 다듬기), F4(알림 스위치), F5(비용 한도).
-// 배치는 LAYOUT_V2 3절: 가운데 열(안내·제목 → 아래쪽에 기록·프롬프트) + 오른쪽 조사 설정 패널(좁은 화면에서는 시트).
+// 배치는 LAYOUT_V3 2·3절: 가운데 열(안내·제목은 세로 가운데 → 아래쪽에 프롬프트) + 오른쪽 조사 설정 패널
+// (분야마다 블록 하나, 선택은 체크 줄; 좁은 화면에서는 시트). 조사 기록은 왼쪽 사이드바(history.js)에 있다.
 
 import { api } from '../api.js';
 import { store, getApiKey, saveDraft, savePrefs, takePrefill, getPref } from '../store.js';
@@ -8,7 +9,6 @@ import {
 } from '../ui.js';
 import { navigate, refreshRuns, openKeyDialog } from '../main.js';
 import { composeOnboarding } from '../onboarding.js';
-import { mountHistory } from '../history.js';
 
 const NARROW_QUERY = '(max-width: 1099px)'; // 이 폭 이하에서 조사 설정 패널은 오른쪽 시트가 된다(home.css와 같은 값)
 const promptMaxHeight = () => Math.max(160, Math.round(window.innerHeight * 0.4));
@@ -25,20 +25,26 @@ const FALLBACK_LIMITS = {
 const FALLBACK_DEFAULTS = {
   max_reflection_rounds: 2, max_tool_steps: 4, results_per_search: 6, verify_sample: 10, parallelism: 3,
 };
+// short = 패널 줄에 보이는 짧은 이름(LAYOUT_V3 2.3), label·hint·unit·범위는 풀이말(title)과 숨긴 설명으로
 const ADVANCED = [
-  { key: 'max_reflection_rounds', label: '재조사 횟수', hint: '자기 비판 뒤 추가 조사를 반복하는 최대 횟수', unit: '회' },
-  { key: 'max_tool_steps', label: '하위 질문당 검색 라운드', hint: '하위 질문 하나에 검색 도구를 부르는 최대 라운드', unit: '라운드' },
-  { key: 'results_per_search', label: '검색 1회당 문헌 수', hint: '검색 한 번에 가져오는 문헌 수', unit: '건' },
-  { key: 'verify_sample', label: '인용 검증 문장 수', hint: '원문과 대조해 검증할 인용 문장 수(0이면 생략)', unit: '문장' },
-  { key: 'parallelism', label: '병렬 실행 수', hint: '동시에 보내는 LLM 호출 수(1이면 순차 실행)', unit: '개' },
+  { key: 'max_reflection_rounds', short: '재조사 횟수', label: '재조사 횟수', hint: '자기 비판 뒤 추가 조사를 반복하는 최대 횟수', unit: '회' },
+  { key: 'max_tool_steps', short: '검색 라운드', label: '하위 질문당 검색 라운드', hint: '하위 질문 하나에 검색 도구를 부르는 최대 라운드', unit: '라운드' },
+  { key: 'results_per_search', short: '검색당 문헌 수', label: '검색 1회당 문헌 수', hint: '검색 한 번에 가져오는 문헌 수', unit: '건' },
+  { key: 'verify_sample', short: '인용 검증 문장', label: '인용 검증 문장 수', hint: '원문과 대조해 검증할 인용 문장 수(0이면 생략)', unit: '문장' },
+  { key: 'parallelism', short: '병렬 실행 수', label: '병렬 실행 수', hint: '동시에 보내는 LLM 호출 수(1이면 순차 실행)', unit: '개' },
 ];
-const FORMAT_GROUPS = [
-  { id: 'report', label: '보고서', groups: ['report'] },
-  { id: 'slides', label: '발표', groups: ['slides'] },
-  { id: 'refs', label: '참고문헌·데이터', groups: ['refs', 'data'] },
-];
+// 결과물 순서: 보고서 → 발표 → 참고문헌·데이터(그룹 제목은 보이지 않는다)
+const FORMAT_ORDER = ['report', 'slides', 'refs', 'data'];
+const FORMAT_SHORT = {
+  md: 'Markdown', html: 'HTML', pdf: 'PDF', docx: 'Word', pptx: 'PowerPoint', bib: 'BibTeX', ris: 'RIS', csv: 'CSV', json: 'JSON',
+};
 const LANGS = [['auto', '자동'], ['ko', '한국어'], ['en', '영어']];
-const YEAR_MODES = [['agent', '에이전트가 결정'], ['none', '제한 없음'], ['custom', '직접 입력']];
+const YEAR_MODES = [['agent', '자동'], ['none', '제한 없음'], ['custom', '직접']];
+const HITL_DESC = '에이전트가 세운 하위 질문을 확인하고 고친 뒤에 검색을 시작합니다. 검토하는 동안 조사는 멈춰 있습니다.';
+const NOTIFY_DESC = '다른 탭을 보고 있어도 조사가 끝나거나 계획 검토가 필요할 때 데스크톱 알림과 짧은 소리로 알려 드립니다.';
+const YEAR_DESC = '자동이면 에이전트가 주제에 맞는 시작 연도를 정하고 그 이유를 함께 기록합니다.';
+const LANG_DESC = '자동이면 입력한 주제의 언어를 따릅니다.';
+const COST_NOTE = '한도에 닿으면 추가 조사를 멈추고 그때까지 모은 근거로 보고서를 씁니다.';
 
 export function mountCompose(container) {
   const cfg = obj(store.get().config);
@@ -292,9 +298,32 @@ export function mountCompose(container) {
     ta,
     h('div', { class: 'prompt-foot' }, exampleRow, h('div', { class: 'prompt-foot-end' }, refineBtn, counter)));
 
+  // ───────────────── 체크 줄 (LAYOUT_V3 2.2) ─────────────────
+  // label.ck > input.sr-only + .ck-box(체크 표시) + .ck-label (+ 배지) + .ck-meta.
+  // 긴 설명은 title 풀이말과, input의 aria-describedby가 가리키는 숨긴 문장으로 둔다.
+  // 숨긴 문장은 label 바깥에 두어 선택지 이름에 섞이지 않게 한다(nodes = [label, 숨긴 문장]).
+  function ckRow({ type = 'checkbox', name, value, checked = false, disabled = false, label, extra = null, meta = null, about = '', cls = '', data, onChange }) {
+    const descId = about ? uid('ck-desc') : null;
+    const input = h('input', {
+      type, name: name || null, value: value ?? null, class: 'sr-only', checked, disabled,
+      'aria-describedby': descId, dataset: data, onChange,
+    });
+    const row = h('label', {
+      class: ['ck', type === 'radio' ? 'ck-radio' : '', checked ? 'is-selected' : '', disabled ? 'is-disabled' : '', cls],
+      title: about || null,
+    },
+    input,
+    h('span', { class: 'ck-box', 'aria-hidden': 'true' }, icon('check', 11)),
+    h('span', { class: 'ck-label' }, label),
+    extra,
+    meta ? h('span', { class: 'ck-meta' }, meta) : null);
+    return { row, input, nodes: descId ? [row, h('span', { class: 'sr-only', id: descId }, about)] : [row] };
+  }
+  const setChecked = (ck, on) => { ck.input.checked = on; ck.row.classList.toggle('is-selected', on); };
+
   // ───────────────── 2. 모델 ─────────────────
   const modelName = uid('model');
-  const modelGrid = h('div', { class: 'sel-rows', role: 'radiogroup', 'aria-label': '모델' });
+  const modelGrid = h('div', { class: 'ck-list', role: 'radiogroup', 'aria-label': '모델' });
   const modelNote = h('div', { class: 'section-note', hidden: true });
 
   function modelAvailability() {
@@ -323,53 +352,43 @@ export function mountCompose(container) {
     }
     // 다시 그려도 방향키로 고르던 초점이 사라지지 않게 선택된 칸으로 돌려준다
     const hadFocus = modelGrid.contains(document.activeElement);
-    // 패널이 좁으므로 세로 라디오 줄: 이름 · 배지 · 가격, 아래 작은 설명
-    modelGrid.replaceChildren(...models.map((m) => {
+    // 한 줄: [체크] 이름 [배지] ······ 입력 $ · 출력 $(100만 토큰당). 한 줄 설명·자세한 설명은 풀이말로
+    modelGrid.replaceChildren(...models.flatMap((m) => {
       const available = ok(m.id);
-      const selected = st.model === m.id;
       const ip = num(m.input_per_mtok);
       const op = num(m.output_per_mtok);
-      const input = h('input', {
-        type: 'radio', name: modelName, value: m.id, class: 'sr-only', checked: selected, disabled: !available,
+      const priced = ip !== null && op !== null;
+      const about = [
+        [str(m.tagline), str(m.description)].filter(Boolean).join(' — '),
+        priced ? `100만 토큰당 입력 $${trimNum(ip)} · 출력 $${trimNum(op)}` : '',
+        available ? '' : '이 키로는 사용할 수 없습니다.',
+      ].filter(Boolean).join('\n');
+      return ckRow({
+        type: 'radio', name: modelName, value: m.id, checked: st.model === m.id, disabled: !available,
+        label: str(m.label, m.id),
+        extra: str(m.badge) ? h('span', { class: 'badge badge-accent ck-badge' }, m.badge) : null,
+        meta: !available ? '사용 불가' : priced ? `$${trimNum(ip)} · $${trimNum(op)}` : '가격 정보 없음',
+        about,
         onChange: () => { st.model = m.id; modelNote.hidden = true; clearError('model'); renderModels(); renderEstimate(); },
-      });
-      return h('label', {
-        class: ['sel-row', selected ? 'is-selected' : '', available ? '' : 'is-disabled'],
-        title: str(m.description) || null,
-      },
-      input,
-      h('span', { class: 'sel-dot', 'aria-hidden': 'true' }),
-      h('span', { class: 'sel-row-main' },
-        h('span', { class: 'sel-row-head' },
-          h('span', { class: 'sel-title' }, str(m.label, m.id)),
-          str(m.badge) ? h('span', { class: 'badge badge-accent' }, m.badge) : null,
-          h('span', { class: 'sel-row-meta num' },
-            ip !== null && op !== null ? `입력 $${trimNum(ip)} · 출력 $${trimNum(op)}` : '가격 정보 없음')),
-        str(m.tagline) ? h('span', { class: 'sel-desc' }, str(m.tagline)) : null,
-        available ? null : h('span', { class: 'sel-unavail' }, icon('x', 12), '이 키로 사용 불가')));
+      }).nodes;
     }));
     if (hadFocus) modelGrid.querySelector('input:checked')?.focus();
   }
 
   // ───────────────── 3. 깊이 ─────────────────
   const depthName = uid('depth');
-  const depthGrid = h('div', { class: 'sel-rows', role: 'radiogroup', 'aria-label': '조사 깊이' });
+  const depthGrid = h('div', { class: 'ck-list', role: 'radiogroup', 'aria-label': '조사 깊이' });
   function renderDepths() {
     const hadFocus = depthGrid.contains(document.activeElement);
-    depthGrid.replaceChildren(...depths.map((d) => {
-      const selected = st.depth === d.id;
+    depthGrid.replaceChildren(...depths.flatMap((d) => {
       const mins = arr(obj(d.estimate).minutes);
-      return h('label', { class: ['sel-row', selected ? 'is-selected' : ''] },
-        h('input', {
-          type: 'radio', name: depthName, value: d.id, class: 'sr-only', checked: selected,
-          onChange: () => { setDepth(d.id); },
-        }),
-        h('span', { class: 'sel-dot', 'aria-hidden': 'true' }),
-        h('span', { class: 'sel-row-main' },
-          h('span', { class: 'sel-row-head' },
-            h('span', { class: 'sel-title' }, str(d.label, d.id)),
-            mins.length === 2 ? h('span', { class: 'sel-row-meta' }, icon('clock', 12), h('span', { class: 'num' }, `약 ${mins[0]}~${mins[1]}분`)) : null),
-          str(d.description) ? h('span', { class: 'sel-desc' }, str(d.description)) : null));
+      return ckRow({
+        type: 'radio', name: depthName, value: d.id, checked: st.depth === d.id,
+        label: str(d.label, d.id),
+        meta: mins.length === 2 ? `${mins[0]}~${mins[1]}분` : null,
+        about: str(d.description),
+        onChange: () => { setDepth(d.id); },
+      }).nodes;
     }));
     if (hadFocus) depthGrid.querySelector('input:checked')?.focus();
   }
@@ -386,67 +405,55 @@ export function mountCompose(container) {
   }
 
   // ───────────────── 4. 결과물 ─────────────────
-  const formatWrap = h('div', { class: 'format-groups' });
+  // 2열 체크 격자, 짧은 이름. 원래 이름과 설명은 풀이말로
+  const orderedFormats = FORMAT_ORDER.flatMap((g) => formats.filter((f) => f.group === g));
+  const formatGrid = h('div', { class: 'ck-grid', role: 'group', 'aria-label': '결과물' });
+  const formatNotes = h('div', { class: 'sp-block-notes' });
+  const formatCount = h('span', { class: 'sp-block-aside num' });
   function renderFormats() {
-    formatWrap.replaceChildren(...FORMAT_GROUPS.map((g) => {
-      const items = formats.filter((f) => g.groups.includes(f.group));
-      if (!items.length) return null;
-      const notes = items.filter((f) => f.available === false);
-      return h('div', { class: 'format-group', role: 'group', 'aria-label': g.label },
-        h('div', { class: 'format-group-label' }, g.label),
-        h('div', { class: 'chips' }, items.map((f) => {
-          const on = st.formats.has(f.id);
-          return h('label', { class: ['chip', 'chip-select', on ? 'is-selected' : '', f.available === false ? 'is-limited' : ''], title: str(f.description) || null },
-            h('input', {
-              type: 'checkbox', class: 'sr-only', checked: on,
-              onChange: (e) => {
-                if (!e.target.checked && st.formats.size <= 1) {
-                  e.target.checked = true;
-                  showError('formats', '결과물은 최소 1개를 골라야 합니다.');
-                  return;
-                }
-                if (e.target.checked) st.formats.add(f.id); else st.formats.delete(f.id);
-                clearError('formats');
-                renderFormats();
-                formatWrap.querySelector(`input[data-id="${f.id}"]`)?.focus();
-              },
-              dataset: { id: f.id },
-            }),
-            h('span', { class: 'chip-check', 'aria-hidden': 'true' }, icon(on ? 'check' : 'plus', 12)),
-            h('span', { class: 'chip-text' }, str(f.label, f.id)),
-            f.available === false ? icon('info', 12, 'chip-flag') : null);
-        })),
-        notes.map((f) => h('p', { class: 'format-note' }, icon('info', 12),
-          h('span', null, `${str(f.label, f.id)}: ${str(f.note, '지금은 만들 수 없습니다.')}${f.id === 'pdf' ? ' 선택하면 인쇄 창에서 PDF로 저장할 수 있게 안내합니다.' : ''}`))));
+    formatGrid.replaceChildren(...orderedFormats.flatMap((f) => {
+      const full = str(f.label, f.id);
+      const limited = f.available === false;
+      return ckRow({
+        checked: st.formats.has(f.id), label: FORMAT_SHORT[f.id] || full, cls: limited ? 'is-limited' : '',
+        meta: limited ? icon('info', 12) : null,
+        about: [full, str(f.description), limited ? str(f.note, '지금은 만들 수 없습니다.') : ''].filter(Boolean).join(' — '),
+        data: { id: f.id },
+        onChange: (e) => {
+          if (!e.target.checked && st.formats.size <= 1) {
+            e.target.checked = true;
+            showError('formats', '결과물은 최소 1개를 골라야 합니다.');
+            return;
+          }
+          if (e.target.checked) st.formats.add(f.id); else st.formats.delete(f.id);
+          clearError('formats');
+          renderFormats();
+          formatGrid.querySelector(`input[data-id="${f.id}"]`)?.focus();
+        },
+      }).nodes;
     }));
+    formatCount.textContent = `${st.formats.size}개 선택`;
+    const notes = orderedFormats.filter((f) => f.available === false).map((f) => h('p', { class: 'format-note' }, icon('info', 12),
+      h('span', null, `${str(f.label, f.id)}: ${str(f.note, '지금은 만들 수 없습니다.')}`)));
+    if (st.formats.has('pdf')) notes.push(h('p', { class: 'sp-block-note' }, "PDF는 인쇄 창에서 'PDF로 저장'으로 만듭니다."));
+    formatNotes.replaceChildren(...notes);
   }
 
   // ───────────────── 5. 옵션 ─────────────────
-  const hitlId = uid('hitl');
-  const hitlSwitch = h('button', {
-    type: 'button', role: 'switch', id: hitlId, class: 'switch', 'aria-checked': st.hitl ? 'true' : 'false',
-    'aria-labelledby': `${hitlId}-label`, 'aria-describedby': `${hitlId}-desc`,
-    onClick: () => {
-      st.hitl = !st.hitl;
-      hitlSwitch.setAttribute('aria-checked', st.hitl ? 'true' : 'false');
-    },
-  }, h('span', { class: 'switch-thumb' }));
-  const hitlRow = h('div', { class: 'option-row' },
-    h('div', { class: 'option-text' },
-      h('label', { class: 'option-title', id: `${hitlId}-label`, htmlFor: hitlId }, '조사 계획을 먼저 검토하기'),
-      h('p', { class: 'option-desc', id: `${hitlId}-desc` }, '에이전트가 세운 하위 질문을 확인하고 고친 뒤에 검색을 시작합니다. 검토하는 동안 조사는 멈춰 있습니다.')),
-    hitlSwitch);
+  const hitlCk = ckRow({
+    checked: st.hitl, label: '계획 먼저 검토', about: HITL_DESC,
+    onChange: (e) => { st.hitl = e.target.checked; setChecked(hitlCk, st.hitl); },
+  });
 
   // 끝나면 알림 받기 (F4) — prefs.notify. 알림을 지원하지 않는 브라우저에서는 숨긴다.
-  const notifyId = uid('notify');
-  const notifySwitch = h('button', {
-    type: 'button', role: 'switch', id: notifyId, class: 'switch', 'aria-checked': st.notify ? 'true' : 'false',
-    'aria-labelledby': `${notifyId}-label`, 'aria-describedby': `${notifyId}-desc`,
-    onClick: () => toggleNotify(),
-  }, h('span', { class: 'switch-thumb' }));
+  // 체크는 권한 결과가 나온 뒤에만 바뀐다(누른 순간에는 지금 상태로 되돌려 두고 toggleNotify가 정한다).
+  const notifyCk = NOTIFY_SUPPORTED ? ckRow({
+    checked: st.notify, label: '끝나면 알림', about: NOTIFY_DESC,
+    onChange: (e) => { e.target.checked = st.notify; toggleNotify(); },
+  }) : null;
   function setNotify(on) {
     st.notify = !!on;
-    notifySwitch.setAttribute('aria-checked', st.notify ? 'true' : 'false');
+    if (notifyCk) setChecked(notifyCk, st.notify);
     savePrefs({ notify: st.notify });
   }
   async function toggleNotify() {
@@ -467,20 +474,19 @@ export function mountCompose(container) {
       setNotify(false);
       toast(perm === 'denied'
         ? '브라우저에서 이 사이트의 알림이 차단되어 있습니다. 주소창의 사이트 설정에서 알림을 허용한 뒤 다시 켜 주세요.'
-        : '알림을 허용하지 않아 스위치를 껐습니다.', 'info', { duration: 7000 });
+        : '알림을 허용하지 않아 "끝나면 알림"을 껐습니다.', 'info', { duration: 7000 });
     }
   }
-  const notifyRow = NOTIFY_SUPPORTED ? h('div', { class: 'option-row' },
-    h('div', { class: 'option-text' },
-      h('label', { class: 'option-title', id: `${notifyId}-label`, htmlFor: notifyId }, '끝나면 알림 받기'),
-      h('p', { class: 'option-desc', id: `${notifyId}-desc` }, '다른 탭을 보고 있어도 조사가 끝나거나 계획 검토가 필요할 때 데스크톱 알림과 짧은 소리로 알려 드립니다.')),
-    notifySwitch) : null;
+  const optionList = h('div', { class: 'ck-list', role: 'group', 'aria-label': '옵션' },
+    hitlCk.nodes, notifyCk ? notifyCk.nodes : null);
 
+  // ───────────────── 6. 고급 설정 (LAYOUT_V3 2.3): "이름 — 조작부" 한 줄씩 ─────────────────
   // 검색 시작 연도
   const yearName = uid('year');
+  const yearDescId = uid('year-desc');
   const [yLo, yHi] = bounds('year_from');
   const yearInput = h('input', {
-    type: 'number', class: 'input input-num num', min: yLo, max: yHi, step: 1, inputmode: 'numeric',
+    type: 'number', class: 'input input-sm input-num input-year num', min: yLo, max: yHi, step: 1, inputmode: 'numeric',
     'aria-label': '검색 시작 연도', placeholder: String(yHi - 4),
   });
   yearInput.value = st.year;
@@ -489,34 +495,49 @@ export function mountCompose(container) {
     const v = Number(yearInput.value);
     if (yearInput.value && Number.isFinite(v)) { st.year = String(Math.min(yHi, Math.max(yLo, Math.round(v)))); yearInput.value = st.year; }
   });
-  const yearSeg = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': '검색 시작 연도' });
+  const yearSeg = h('div', { class: 'seg seg-sm', role: 'radiogroup', 'aria-label': '검색 시작 연도', 'aria-describedby': yearDescId });
+  const yearSub = h('div', { class: 'adv-row adv-sub', hidden: true }, yearInput, h('span', { class: 'field-unit' }, '년 이후'));
   function renderYear() {
-    yearSeg.replaceChildren(...YEAR_MODES.map(([id, label]) => h('label', { class: ['seg-btn', st.yearMode === id ? 'is-on' : ''] },
-      h('input', {
-        type: 'radio', name: yearName, class: 'sr-only', value: id, checked: st.yearMode === id,
-        onChange: () => {
-          st.yearMode = id;
-          if (id === 'custom' && !st.year) { st.year = String(yHi - 4); yearInput.value = st.year; }
-          renderYear();
-          if (id === 'custom') yearInput.focus();
-          clearError('year');
-        },
-      }), label)));
-    yearInput.hidden = st.yearMode !== 'custom';
-    yearUnit.hidden = st.yearMode !== 'custom';
+    // 다시 그려도 방향키로 고르던 초점이 사라지지 않게 선택된 칸으로 돌려준다("직접"이면 연도 칸으로)
+    const hadFocus = yearSeg.contains(document.activeElement);
+    yearSeg.replaceChildren(...YEAR_MODES.map(([id, label]) => h('label', {
+      class: ['seg-btn', st.yearMode === id ? 'is-on' : ''], title: id === 'agent' ? '에이전트가 결정' : id === 'custom' ? '직접 입력' : null,
+    },
+    h('input', {
+      type: 'radio', name: yearName, class: 'sr-only', value: id, checked: st.yearMode === id,
+      onChange: () => {
+        st.yearMode = id;
+        if (id === 'custom' && !st.year) { st.year = String(yHi - 4); yearInput.value = st.year; }
+        renderYear();
+        if (id === 'custom') yearInput.focus();
+        clearError('year');
+      },
+    }), label)));
+    yearSub.hidden = st.yearMode !== 'custom';
+    if (hadFocus && st.yearMode !== 'custom') yearSeg.querySelector('input:checked')?.focus();
   }
-  const yearUnit = h('span', { class: 'field-unit' }, '년 이후');
+  const yearGroup = h('div', { class: 'adv-group' },
+    h('div', { class: 'adv-row' }, h('span', { class: 'adv-row-label', title: YEAR_DESC }, '검색 시작 연도'), yearSeg),
+    yearSub,
+    errSlot('year'),
+    h('span', { class: 'sr-only', id: yearDescId }, YEAR_DESC));
 
   // 보고서 언어
   const langName = uid('lang');
-  const langSeg = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': '보고서 언어' });
+  const langDescId = uid('lang-desc');
+  const langSeg = h('div', { class: 'seg seg-sm', role: 'radiogroup', 'aria-label': '보고서 언어', 'aria-describedby': langDescId });
   function renderLang() {
+    const hadFocus = langSeg.contains(document.activeElement);
     langSeg.replaceChildren(...LANGS.map(([id, label]) => h('label', { class: ['seg-btn', st.language === id ? 'is-on' : ''] },
       h('input', {
         type: 'radio', name: langName, class: 'sr-only', value: id, checked: st.language === id,
         onChange: () => { st.language = id; renderLang(); },
       }), label)));
+    if (hadFocus) langSeg.querySelector('input:checked')?.focus();
   }
+  const langRow = h('div', { class: 'adv-row' },
+    h('span', { class: 'adv-row-label', title: LANG_DESC }, '보고서 언어'), langSeg,
+    h('span', { class: 'sr-only', id: langDescId }, LANG_DESC));
 
   // 비용 한도 (F5): 0.5 단위, 0~100, "한도 없음". 기본값 = 예상 비용 × 1.5를 0.5 단위로 올림.
   const [costLo, costHi] = (() => {
@@ -525,13 +546,19 @@ export function mountCompose(container) {
   })();
   const roundCost = (v) => Math.min(costHi, Math.max(costLo, Math.round(v / COST_STEP) * COST_STEP));
   const costId = uid('maxcost');
+  const costHint = `${COST_NOTE} ${trimNum(costLo)}~${trimNum(costHi)}달러, ${COST_STEP}달러 단위. 웹 검색 요금(1,000회에 $10)도 포함해 계산합니다.`;
   const costInput = h('input', {
-    id: costId, type: 'number', class: 'input input-num input-cost num', min: costLo, max: costHi, step: COST_STEP, inputmode: 'decimal',
+    id: costId, type: 'number', class: 'input input-sm input-num input-cost num', min: costLo, max: costHi, step: COST_STEP, inputmode: 'decimal',
     'aria-describedby': `${costId}-hint`,
   });
-  const noCapBox = h('input', { type: 'checkbox', class: 'checkbox', checked: st.noCap });
-  const costReset = h('button', { type: 'button', class: 'link-btn', hidden: true, onClick: () => { st.costTouched = false; st.noCap = false; noCapBox.checked = false; syncCost(); renderEstimate(); } }, '예상치에 맞추기');
-  const costTag = h('span', { class: 'tag tag-accent', hidden: true }, '직접 설정');
+  const noCap = ckRow({ checked: st.noCap, label: '한도 없음', cls: 'ck-sm' });
+  const noCapBox = noCap.input;
+  const costRow = h('div', { class: 'adv-row' },
+    h('label', { class: 'adv-row-label', htmlFor: costId, title: costHint }, '최대 비용'),
+    h('div', { class: 'adv-ctrl' },
+      h('span', { class: 'adv-cost' }, h('span', { class: 'field-unit', 'aria-hidden': 'true' }, '$'), costInput),
+      noCap.row),
+    h('span', { class: 'sr-only', id: `${costId}-hint` }, costHint));
   function defaultCost() {
     const c = estimateCost();
     return c === null ? null : Math.min(costHi, Math.max(costLo, Math.ceil((c * 1.5) / COST_STEP) * COST_STEP));
@@ -545,8 +572,9 @@ export function mountCompose(container) {
     const v = capValue();
     if (force || document.activeElement !== costInput) costInput.value = v === null ? '' : trimNum(v);
     costInput.disabled = st.noCap;
-    costTag.hidden = !st.costTouched;
-    costReset.hidden = !st.costTouched;
+    setChecked(noCap, st.noCap);
+    costRow.classList.toggle('is-custom', st.costTouched);
+    syncAdvReset();
   }
   costInput.addEventListener('change', () => {
     const v = Number(costInput.value);
@@ -572,25 +600,16 @@ export function mountCompose(container) {
     renderEstimate();
     if (!st.noCap) costInput.focus();
   });
-  const costField = h('div', { class: 'adv-field adv-field-wide adv-cost' },
-    h('div', { class: 'adv-field-head' },
-      h('label', { class: 'field-label', htmlFor: costId }, '최대 비용(USD)'), costTag, costReset),
-    h('div', { class: 'adv-cost-row' },
-      h('span', { class: 'stepper-input' }, h('span', { class: 'field-unit' }, '$'), costInput),
-      h('label', { class: 'check-row check-inline' }, noCapBox, h('span', { class: 'check-title' }, '한도 없음'))),
-    h('p', { class: 'field-hint', id: `${costId}-hint` }, `한도에 닿으면 추가 조사를 멈추고 그때까지 모은 근거로 보고서를 씁니다. ${trimNum(costLo)}~${trimNum(costHi)}달러, ${COST_STEP}달러 단위. 웹 검색 요금(1,000회에 $10)도 포함해 계산합니다.`));
 
-  // 숫자 설정: "이름 — 스테퍼" 한 줄씩, 설명은 아래 작은 글씨 한 줄
-  const advRows = h('div', { class: 'adv-grid' });
+  // 숫자 설정: "짧은 이름 — [−] 값 [+]". 줄은 한 번만 만들고 값·상태만 고친다(다시 그려도 초점이 그대로 남는다).
   function numberField(def) {
-    const { key, label, hint, unit } = def;
+    const { key, short, label, hint, unit } = def;
     const [lo, hi] = bounds(key);
     const id = uid(key);
     const input = h('input', {
-      id, type: 'number', class: 'input input-num num', min: lo, max: hi, step: 1, inputmode: 'numeric',
+      id, type: 'number', class: 'input input-sm input-num num', min: lo, max: hi, step: 1, inputmode: 'numeric',
       'aria-describedby': `${id}-hint`,
     });
-    input.value = String(st.adv[key]);
     const commit = (v) => {
       if (!Number.isFinite(v)) v = presetValue(key);
       st.adv[key] = clamp(key, v);
@@ -599,45 +618,60 @@ export function mountCompose(container) {
       renderEstimate();
     };
     input.addEventListener('change', () => commit(Number(input.value)));
-    const dec = h('button', { type: 'button', class: 'step-btn', 'aria-label': `${label} 줄이기`, disabled: st.adv[key] <= lo, onClick: () => { commit(st.adv[key] - 1); advRows.querySelector(`#${id}`)?.focus(); } }, icon('minus', 14));
-    const inc = h('button', { type: 'button', class: 'step-btn', 'aria-label': `${label} 늘리기`, disabled: st.adv[key] >= hi, onClick: () => { commit(st.adv[key] + 1); advRows.querySelector(`#${id}`)?.focus(); } }, icon('plus', 14));
-    const custom = st.overrides.has(key);
-    return h('div', { class: ['adv-field', 'adv-num', custom ? 'is-custom' : ''] },
-      h('div', { class: 'adv-num-row' },
-        h('div', { class: 'adv-field-head' },
-          h('label', { class: 'field-label', htmlFor: id }, label),
-          custom ? h('span', { class: 'tag tag-accent' }, '직접 설정') : null,
-          custom ? h('button', {
-            type: 'button', class: 'link-btn', onClick: () => { commit(presetValue(key)); },
-            title: `깊이 프리셋 값(${presetValue(key)})으로 되돌리기`,
-          }, '되돌리기') : null),
-        h('div', { class: 'stepper-input' }, dec, input, inc, h('span', { class: 'field-unit' }, unit))),
-      h('p', { class: 'field-hint', id: `${id}-hint` }, `${hint} · ${lo}~${hi}`));
+    const dec = h('button', { type: 'button', class: 'step-btn', 'aria-label': `${label} 줄이기`, onClick: () => commit(st.adv[key] - 1) }, icon('minus', 12));
+    const inc = h('button', { type: 'button', class: 'step-btn', 'aria-label': `${label} 늘리기`, onClick: () => commit(st.adv[key] + 1) }, icon('plus', 12));
+    const name = h('label', { class: 'adv-row-label', htmlFor: id }, short);
+    const desc = h('span', { class: 'sr-only', id: `${id}-hint` });
+    const el = h('div', { class: 'adv-row' }, name, h('div', { class: 'stepper-input stepper-sm' }, dec, input, inc), desc);
+    const sync = () => {
+      const v = st.adv[key];
+      const custom = st.overrides.has(key);
+      input.value = String(v);
+      // 끝값에 닿아 꺼지는 버튼에 초점이 있었으면 입력 칸으로 옮긴다(초점이 문서 처음으로 사라지지 않게)
+      const a = document.activeElement;
+      const lose = (a === dec && v <= lo) || (a === inc && v >= hi);
+      dec.disabled = v <= lo;
+      inc.disabled = v >= hi;
+      if (lose) input.focus();
+      el.classList.toggle('is-custom', custom);
+      const about = `${label}: ${hint} · ${lo}~${hi}${unit}${custom ? ` · 직접 설정(깊이 프리셋 값 ${presetValue(key)}${unit})` : ''}`;
+      name.title = about;
+      desc.textContent = about;
+    };
+    return { el, sync };
   }
+  const advFields = ADVANCED.map(numberField);
+  const advRows = h('div', { class: 'adv-nums' }, advFields.map((f) => f.el));
   function renderAdvanced() {
-    const focusedId = document.activeElement && advRows.contains(document.activeElement) ? document.activeElement.id : null;
-    advRows.replaceChildren(...ADVANCED.map(numberField));
-    if (focusedId) advRows.querySelector(`#${focusedId}`)?.focus();
+    for (const f of advFields) f.sync();
   }
 
-  // 고급 설정: 접지 않고 패널 안에 항상 펼쳐 둔다(LAYOUT_V2 3절)
-  const advancedBody = h('div', { class: 'sp-adv' },
-    h('div', { class: 'adv-field adv-field-wide' },
-      h('div', { class: 'adv-field-head' }, h('span', { class: 'field-label' }, '검색 시작 연도')),
-      h('div', { class: 'adv-year' }, yearSeg, h('span', { class: 'adv-year-input' }, yearInput, yearUnit)),
-      errSlot('year'),
-      h('p', { class: 'field-hint' }, '에이전트가 결정하면 주제에 맞는 시작 연도와 그 이유를 함께 기록합니다.')),
-    h('div', { class: 'adv-field' },
-      h('div', { class: 'adv-field-head' }, h('span', { class: 'field-label' }, '보고서 언어')),
-      langSeg,
-      h('p', { class: 'field-hint' }, '자동이면 입력한 주제의 언어를 따릅니다.')),
-    costField,
-    advRows);
+  // 블록 머리의 "기본값으로": 직접 바꾼 숫자 설정과 비용 한도를 기본(깊이 프리셋 · 예상치 기준)으로 되돌린다
+  const advReset = h('button', {
+    type: 'button', class: 'link-btn', hidden: true,
+    title: '직접 바꾼 고급 설정 값과 비용 한도를 기본값(깊이 프리셋 · 예상치 기준)으로 되돌립니다.',
+    onClick: () => resetAdvanced(),
+  }, '기본값으로');
+  function syncAdvReset() { advReset.hidden = !(st.overrides.size || st.costTouched); }
+  let advTitle = null;
+  function resetAdvanced() {
+    for (const { key } of ADVANCED) st.adv[key] = presetValue(key);
+    st.overrides.clear();
+    st.costTouched = false;
+    st.noCap = false;
+    st.maxCost = null;
+    touchedBeforeNoCap = false;
+    renderAdvanced();
+    renderEstimate();
+    // 누른 버튼이 사라지므로 초점을 블록 제목으로 옮긴다
+    advTitle?.focus({ preventScroll: true });
+  }
 
-  // ───────────────── 6. 예상치 ─────────────────
+  // ───────────────── 7. 예상치 ─────────────────
   // 자세한 예상치는 패널 아래(.sp-foot), 한 줄 요약은 프롬프트 아래(.composer-est). renderEstimate()가 둘 다 고친다.
-  const estMain = h('div', { class: 'estimate-main' });
-  const estSub = h('div', { class: 'estimate-sub' });
+  const estMain = h('div', { class: 'sp-est-main num' });
+  const estDetail = h('div', { class: 'sp-est-detail num' });
+  const estSub = h('div', { class: 'sp-est-sub' });
   const estLine = h('div', { class: 'composer-est num', 'aria-live': 'polite' });
   const toggleSum = h('span', { class: 'panel-toggle-sum' });
   function renderToggleSummary() {
@@ -659,29 +693,24 @@ export function mountCompose(container) {
     return null;
   }
   function renderEstimate() {
-    const d = depthObj();
-    const est = obj(d.estimate);
+    const est = obj(depthObj().estimate);
     const calls = num(est.llm_calls);
     const mins = arr(est.minutes);
     const cost = estimateCost();
     syncCost();
     const cap = capValue();
-    const parts = [];
-    if (calls !== null) parts.push(h('span', null, 'LLM 호출 약 ', h('b', { class: 'num' }, fmtInt(calls)), '회'));
-    if (mins.length === 2) parts.push(h('span', null, h('b', { class: 'num' }, `${mins[0]}~${mins[1]}`), '분'));
-    parts.push(h('span', null, '예상 비용 약 ', h('b', { class: 'num' }, fmtCost(cost))));
-    parts.push(h('span', { class: 'estimate-cap' }, st.noCap || cap === null ? '한도 없음' : h('span', null, '한도 ', h('b', { class: 'num' }, `$${trimNum(cap)}`))));
-    estMain.replaceChildren(...parts.flatMap((p, i) => (i ? [h('span', { class: 'dot-sep', 'aria-hidden': 'true' }, '·'), p] : [p])));
-    const sub = [];
-    sub.push(est.measured ? '실제 실행 2회 평균 기준' : '추정');
+    const capText = st.noCap || cap === null ? '한도 없음' : `한도 $${trimNum(cap)}`;
+    // "약 $4.45 · 12~24분" / "LLM 호출 약 77회 · 한도 $7" / "실제 실행 2회 평균 · 가격 기준 2026-11-03"
+    const head = [`약 ${fmtCost(cost)}`];
+    if (mins.length === 2) head.push(`${mins[0]}~${mins[1]}분`);
+    estMain.textContent = head.join(' · ');
+    estDetail.textContent = [calls !== null ? `LLM 호출 약 ${fmtInt(calls)}회` : '', capText].filter(Boolean).join(' · ');
+    const sub = [est.measured ? '실제 실행 2회 평균' : '추정치'];
     if (st.overrides.size) sub.push('고급 설정을 바꾸면 달라질 수 있음');
-    if (str(cfg.pricing_as_of)) sub.push(`가격 기준일 ${cfg.pricing_as_of}`);
+    if (str(cfg.pricing_as_of)) sub.push(`가격 기준 ${cfg.pricing_as_of}`);
     estSub.textContent = sub.join(' · ');
     // 한 줄 요약: "약 $4.45 · 12~24분 · 한도 $7"
-    const line = [`약 ${fmtCost(cost)}`];
-    if (mins.length === 2) line.push(`${mins[0]}~${mins[1]}분`);
-    line.push(st.noCap || cap === null ? '한도 없음' : `한도 $${trimNum(cap)}`);
-    estLine.textContent = line.join(' · ');
+    estLine.textContent = [...head, capText].join(' · ');
     renderToggleSummary();
   }
 
@@ -698,20 +727,18 @@ export function mountCompose(container) {
       ? [icon('alert-triangle', 14), h('span', null, `API 키 확인 실패: ${str(ks.message, '알 수 없는 오류')}`)]
       : []));
   }
-  // 패널 구역: 제목 + 작은 설명 한 줄
-  const spSec = (title, note, ...body) => {
-    const id = uid('sp-sec');
-    return h('section', { class: 'sp-sec', 'aria-labelledby': id },
-      h('div', { class: 'sp-sec-head' },
-        h('h3', { class: 'sp-sec-title', id }, title),
-        note ? h('p', { class: 'sp-sec-note' }, note) : null),
+  // 패널 블록: 제목 + 오른쪽 짧은 보조 정보(문자열 또는 .sp-block-aside 요소)
+  const spBlock = (title, aside, ...body) => {
+    const id = uid('sp-block');
+    return h('section', { class: 'sp-block', 'aria-labelledby': id },
+      h('div', { class: 'sp-block-head' },
+        h('h3', { class: 'sp-block-title', id }, title),
+        typeof aside === 'string' ? h('span', { class: 'sp-block-aside' }, aside) : aside),
       ...body);
   };
 
   const onboarding = composeOnboarding(null);
   cleanups.push(() => onboarding.destroy());
-  const history = mountHistory();
-  cleanups.push(() => history.destroy());
 
   // ── 조사 설정 패널 (넓은 화면: 오른쪽 열 / 좁은 화면: 오른쪽 시트) ──
   const panelId = uid('settings');
@@ -719,19 +746,21 @@ export function mountCompose(container) {
   const spClose = h('button', {
     type: 'button', class: 'btn btn-ghost btn-icon btn-sm sp-close', 'aria-label': '조사 설정 닫기', onClick: () => closePanel(),
   }, icon('x', 16));
+  const advBlock = spBlock('고급 설정', h('span', { class: 'sp-block-aside' }, advReset),
+    yearGroup, langRow, costRow, advRows,
+    h('p', { class: 'sp-block-note' }, COST_NOTE));
+  advTitle = advBlock.querySelector('.sp-block-title');
+  advTitle.tabIndex = -1;
   const spBody = h('div', { class: 'sp-body' },
-    spSec('모델', str(cfg.pricing_as_of) ? `100만 토큰당 가격 · ${cfg.pricing_as_of} 기준` : '100만 토큰당 가격',
-      keyNote, modelGrid, modelNote, errSlot('model')),
-    spSec('조사 깊이', '깊을수록 오래 걸리고 비용이 늘어납니다', depthGrid),
-    spSec('결과물', '조사가 끝나면 자동으로 만듭니다. 다른 형식은 나중에도 받을 수 있습니다', formatWrap, errSlot('formats')),
-    spSec('옵션', null, h('div', { class: 'sp-options' }, hitlRow, notifyRow)),
-    spSec('고급 설정', null, advancedBody));
+    spBlock('모델', '입력 · 출력 / 100만 토큰', keyNote, modelGrid, modelNote, errSlot('model')),
+    spBlock('조사 깊이', '예상 시간', depthGrid),
+    spBlock('결과물', formatCount, formatGrid, formatNotes, errSlot('formats')),
+    spBlock('옵션', null, optionList),
+    advBlock);
   panel = h('aside', { class: 'settings-panel', id: panelId, 'aria-label': '조사 설정' },
     h('div', { class: 'sp-head' }, spTitle, spClose),
     spBody,
-    h('div', { class: 'sp-foot' },
-      h('div', { class: 'sp-foot-label' }, '예상치'),
-      h('div', { class: 'estimate' }, estMain, estSub)));
+    h('div', { class: 'sp-foot', role: 'group', 'aria-label': '예상치' }, estMain, estDetail, estSub));
   const scrim = h('div', { class: 'sp-scrim', 'aria-hidden': 'true', onClick: () => closePanel() });
 
   const panelToggle = h('button', {
@@ -759,22 +788,21 @@ export function mountCompose(container) {
           h('p', { class: 'page-sub' }, '주제를 적으면 에이전트가 하위 질문을 세우고 학술 문헌을 찾아 읽은 뒤, 인용을 검증한 보고서를 씁니다.')),
         prefill ? h('div', { class: 'note note-info home-note' }, icon('refresh', 16), h('span', null, '이전 조사의 주제와 설정을 불러왔습니다. 고칠 부분을 고친 뒤 시작하세요.')) : null),
       h('div', { class: 'home-bottom' },
-        history.el,
         refinePanel,
         composer)),
     scrim,
     panel);
   container.append(home);
 
-  // ── 좁은 화면(≤1099px): 패널 시트 열고 닫기 (LAYOUT_V2 3.1) ──
+  // ── 좁은 화면(≤1099px): 패널 시트 열고 닫기 (LAYOUT_V3 2.5) ──
   const mq = window.matchMedia(NARROW_QUERY);
   const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let panelOpen = false;
-  /** 시트가 열려 있는 동안 가림막 뒤(가운데 열·왼쪽 레일·위쪽 띠)는 초점과 보조 기술에서 빠진다 */
+  /** 시트가 열려 있는 동안 가림막 뒤(가운데 열·왼쪽 사이드바·위쪽 바·띠)는 초점과 보조 기술에서 빠진다 */
   function setBackgroundInert(on) {
     const homeMain = home.querySelector('.home-main');
     if (homeMain) homeMain.inert = on;
-    for (const sel of ['.rail', '.banners']) document.querySelector(sel)?.toggleAttribute('inert', on);
+    for (const sel of ['.side', '.topbar', '.banners']) document.querySelector(sel)?.toggleAttribute('inert', on);
   }
   function setPanel(open) {
     panelOpen = open;
@@ -786,6 +814,8 @@ export function mountCompose(container) {
   }
   function openPanel({ focus = true } = {}) {
     if (!mq.matches) return; // 넓은 화면에서는 늘 보인다
+    // 왼쪽 서랍이 열려 있으면 시트를 겹쳐 열지 않는다(둘 다 서로를 비활성으로 만들어 화면이 멈춘다)
+    if (document.body.classList.contains('drawer-open')) return;
     setPanel(true);
     if (focus) spTitle.focus({ preventScroll: true });
   }
@@ -800,12 +830,15 @@ export function mountCompose(container) {
       if (!el.isConnected) return;
       // 시트가 막 열렸고 초점이 아직 바깥(시작 버튼 등)에 있으면 패널 제목으로 옮긴다
       if (mq.matches && panelOpen && !panel.contains(document.activeElement)) spTitle.focus({ preventScroll: true });
-      const target = el.closest('.adv-field') || el.closest('.sp-sec') || el;
+      const target = el.closest('.adv-group') || el.closest('.sp-block') || el;
       const t = target.getBoundingClientRect();
       const e = el.getBoundingClientRect();
       const b = spBody.getBoundingClientRect();
       if (t.top < b.top || e.bottom > b.bottom) {
-        spBody.scrollTo({ top: Math.max(0, spBody.scrollTop + (t.top - b.top) - 12), behavior: reducedMotion() ? 'auto' : 'smooth' });
+        // 묶음(블록) 머리를 위쪽에 두되, 묶음이 길어 오류 칸이 아래로 잘리면 오류 칸이 보이는 만큼만 내린다
+        let delta = t.top - b.top - 12;
+        if (e.bottom - delta > b.bottom - 12) delta = e.bottom - b.bottom + 12;
+        spBody.scrollTo({ top: Math.max(0, spBody.scrollTop + delta), behavior: reducedMotion() ? 'auto' : 'smooth' });
       }
     });
   };
@@ -822,7 +855,7 @@ export function mountCompose(container) {
 
   // 프롬프트 칸 높이(토스트 위치)와 위쪽 띠 높이(처음 화면 최소 높이)를 CSS 변수로 알려 준다
   // 아래에 붙은 프롬프트 칸 뒤로 초점이 숨지 않도록, 그 높이만큼을 문서 스크롤의 아래 여백으로 잡는다
-  // (키보드로 기록 카드나 다듬기 제안에 초점이 가면 브라우저가 프롬프트 칸 위로 올려 보여 준다).
+  // (키보드로 안내 카드나 다듬기 제안에 초점이 가면 브라우저가 프롬프트 칸 위로 올려 보여 준다).
   if (typeof ResizeObserver === 'function') {
     const banners = document.querySelector('.banners');
     const measure = () => {
@@ -870,7 +903,9 @@ export function mountCompose(container) {
       closePanel();
       return;
     }
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !document.querySelector('.modal-root')) {
+    // 서랍(좁은 화면의 사이드바)이 열려 있는 동안에는 시작 단축키를 받지 않는다: 본문이 가려져 있어 오류를 보여 줄 수 없다
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !document.querySelector('.modal-root')
+        && !document.body.classList.contains('drawer-open')) {
       e.preventDefault();
       start();
     }
@@ -945,10 +980,23 @@ export function mountCompose(container) {
     if (code.includes('format')) { showError('formats', msg); return; }
     if (code.includes('year')) { showError('year', msg); return; }
     if (code === 'too_many_runs') {
-      showError('run', msg, button('기록 보기', { kind: 'secondary', size: 'sm', onClick: () => document.querySelector('.hist-item')?.focus() }));
+      showError('run', msg, button('기록 보기', { kind: 'secondary', size: 'sm', onClick: () => showHistory() }));
       return;
     }
     showError('run', msg);
+  }
+
+  /** "기록 보기": 기록은 왼쪽 사이드바에 있다. 접혀 있거나(넓은 화면) 서랍이 닫혀 있으면(좁은 화면) 사이드바의
+   *  열기 버튼(aria-controls="side")을 눌러 편 뒤 첫 기록 줄로 초점을 옮긴다 */
+  function showHistory() {
+    // 닫힌 서랍(≤899px)은 화면 밖으로 밀려나 있어 상자는 있지만 visibility: hidden이다 — 그것도 쓸 수 없는 것으로 본다
+    const usable = (el) => !!el && el.getClientRects().length > 0 && !el.closest('[inert]')
+      && getComputedStyle(el).visibility !== 'hidden';
+    if (!usable(document.querySelector('.hist-item'))) {
+      const opener = [...document.querySelectorAll('[aria-controls="side"][aria-expanded="false"]')].find(usable);
+      opener?.click();
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => document.querySelector('.hist-item')?.focus()));
   }
 
   async function start() {
