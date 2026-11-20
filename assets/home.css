@@ -1,0 +1,243 @@
+/* AI Research Agent — 처음 화면(#/) 배치 (LAYOUT_V2 3·3.1·4절)
+   app.css 다음, result.css 앞에 읽힌다. 색·간격·모서리는 tokens.css 변수만 쓴다.
+   app.css 19번(작성 화면) 규칙 가운데 새 배치와 맞지 않는 것은 여기서 덮어쓴다.
+   구성: 1 틀 · 2 가운데 열 · 3 프롬프트 입력(.composer) · 4 조사 설정 패널 · 5 패널용 조밀한 선택 줄 ·
+         6 좁은 화면(시트) · 7 토스트 위치 · 8 움직임 줄이기 */
+
+:root { --panel-w: 360px; }
+
+/* ───────── 1. 틀 ───────── */
+.home {
+  display: grid; grid-template-columns: minmax(0, 1fr) var(--panel-w);
+  min-height: calc(100dvh - var(--banner-h, 0px));
+}
+
+/* ───────── 2. 가운데 열 ───────── */
+.home-main {
+  display: flex; flex-direction: column; min-width: 0;
+  width: 100%; max-width: 980px; margin: 0 auto;
+  min-height: calc(100dvh - var(--banner-h, 0px));
+  padding: var(--sp-6) var(--page-pad) 0;
+}
+/* 노트북 화면(높이 768px)에서도 안내 카드 · 제목 · 기록 · 프롬프트가 한 화면에 들어오도록 세로 간격을 줄인다 */
+.home-top { display: flex; flex-direction: column; min-width: 0; padding-bottom: var(--sp-4); }
+.home-top .page-head { margin-bottom: 0; }
+.home-top .onb-slot { margin-bottom: var(--sp-5); }
+.home-top .onb-steps { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.home-note { margin-bottom: var(--sp-4); }
+
+/* 기록과 프롬프트는 화면 아래쪽에 붙는다.
+   .home-bottom은 상자를 만들지 않아(display: contents) .composer의 sticky 범위가 가운데 열 전체가 된다.
+   그래서 위쪽 안내 카드가 길어 기록이 화면 아래로 밀려나도 프롬프트 입력은 늘 화면 아래에 보인다. */
+.home-bottom { display: contents; }
+.home-bottom > :first-child { margin-top: auto; }
+.home-bottom > * + * { margin-top: var(--sp-4); }
+.home-bottom > .refine-slot { margin-top: var(--sp-4); }
+.home-bottom .refine-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+
+/* ───────── 3. 프롬프트 입력 ───────── */
+.composer {
+  position: sticky; bottom: 0; z-index: 10;
+  margin-left: calc(-1 * var(--page-pad)); margin-right: calc(-1 * var(--page-pad));
+  padding: var(--sp-2) var(--page-pad) var(--sp-3);
+  background: var(--bg); /* 뒤 내용이 비치지 않게 */
+}
+.composer::before { /* 위쪽 옅은 페이드: 스크롤되는 기록이 입력 칸 뒤로 자연스럽게 사라진다 */
+  content: ""; position: absolute; left: 0; right: 0; bottom: 100%; height: var(--sp-6);
+  background: linear-gradient(to bottom, transparent, var(--bg));
+  pointer-events: none;
+}
+.composer .prompt-card { box-shadow: var(--shadow-2); padding: var(--sp-3) var(--sp-4) var(--sp-2); }
+.composer .prompt-card:focus-within { box-shadow: var(--focus-ring), var(--shadow-2); }
+.composer .prompt-input { min-height: 54px; }
+.composer .prompt-foot { align-items: center; margin-top: var(--sp-2); padding-top: var(--sp-2); }
+/* 예시 칩은 한 줄로 두고 넘치면 옆으로 민다. 스크롤 막대는 숨기고 오른쪽 끝을 흐리게 해 더 있음을 알린다 */
+.composer .examples {
+  flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+  padding: 4px; margin: -4px; /* 초점 테두리(2px + 간격 2px)가 잘리지 않을 만큼 */
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+.composer .examples::-webkit-scrollbar { display: none; }
+/* 키보드로 칩에 초점이 가면 흐림을 걷어 초점 표시가 또렷하게 보이게 한다 */
+.composer .examples:focus-within { -webkit-mask-image: none; mask-image: none; }
+.composer .chip-example { flex: none; max-width: 210px; }
+.composer > .field-error { margin-top: var(--sp-2); }
+
+.composer-foot { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); margin-top: var(--sp-2); }
+.composer-est {
+  flex: 1 1 auto; min-width: 0;
+  font-size: var(--fs-13); color: var(--text-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.composer-foot .kbd-hint { flex: none; }
+.composer-foot .btn-start { flex: none; }
+
+/* 조사 설정 열기 버튼: 좁은 화면에서만 보인다 */
+.btn.panel-toggle { display: none; flex: none; max-width: 100%; }
+.panel-toggle-sum {
+  min-width: 0; max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 400; color: var(--text-3);
+}
+.panel-toggle-sum:empty { display: none; }
+
+/* ───────── 4. 조사 설정 패널 ───────── */
+.settings-panel {
+  position: sticky; top: 0; height: 100dvh; min-width: 0;
+  display: flex; flex-direction: column;
+  border-left: 1px solid var(--border); background: var(--surface);
+}
+.sp-head {
+  flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  min-height: 56px; padding: var(--sp-3) var(--sp-5); border-bottom: 1px solid var(--border);
+}
+.sp-title { font-size: var(--fs-15); font-weight: 700; }
+.sp-title:focus { outline: none; } /* 시트를 열 때 프로그램으로만 초점을 둔다 */
+.btn.sp-close { display: none; }
+.sp-body {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: 0 var(--sp-5) var(--sp-4);
+}
+.sp-sec { padding: var(--sp-4) 0; min-width: 0; }
+.sp-sec + .sp-sec { border-top: 1px solid var(--border); }
+.sp-sec-head { margin-bottom: var(--sp-3); }
+.sp-sec-title { font-size: var(--fs-13); font-weight: 700; color: var(--text); }
+.sp-sec-note { margin-top: 2px; font-size: var(--fs-12); color: var(--text-3); line-height: 1.45; }
+.sp-sec .section-note { font-size: var(--fs-12-5); align-items: flex-start; }
+.sp-sec .section-note .icon { margin-top: 2px; flex: none; }
+
+.sp-foot {
+  flex: none; padding: var(--sp-3) var(--sp-5) var(--sp-4);
+  border-top: 1px solid var(--border); background: var(--surface-2);
+}
+.sp-foot-label { margin-bottom: 2px; font-size: var(--fs-12); font-weight: 600; color: var(--text-3); }
+.sp-foot .estimate-main { font-size: var(--fs-13); }
+
+.sp-scrim { display: none; }
+
+/* 넓은 화면에서 위쪽 띠(테스트 모드 · 저장 불가)가 보이면, 처음 위치에서 패널 아래(예상치)가 화면 밖으로
+   잘리지 않도록 패널 높이에서 띠 높이를 뺀다. 스크롤해서 띠가 사라진 뒤 패널 아래에 남는 틈은
+   오른쪽 열 배경(패널 아래칸 색 + 왼쪽 테두리)으로 이어 보이게 칠한다. */
+@media (min-width: 1100px) {
+  .settings-panel { height: calc(100dvh - var(--banner-h, 0px)); }
+  .home {
+    background:
+      linear-gradient(var(--border), var(--border)) right calc(var(--panel-w) - 1px) top 0 / 1px 100% no-repeat,
+      linear-gradient(var(--surface-2), var(--surface-2)) right 0 top 0 / var(--panel-w) 100% no-repeat;
+  }
+}
+
+/* ───────── 5. 패널용 조밀한 선택 줄 ───────── */
+/* 모델 · 깊이: 세로 라디오 줄 */
+.sel-rows { display: flex; flex-direction: column; gap: var(--sp-1); }
+.sel-row {
+  position: relative; display: flex; align-items: flex-start; gap: var(--sp-3); min-width: 0;
+  padding: var(--sp-2) var(--sp-3); border: 1px solid transparent; border-radius: var(--r-md);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.sel-row:hover { background: var(--surface-2); }
+.sel-row.is-selected { background: var(--accent-soft); border-color: var(--accent); }
+.sel-row:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sel-row.is-disabled { cursor: not-allowed; border-style: dashed; border-color: var(--border-strong); background: var(--surface-2); }
+.sel-row.is-disabled > .sel-dot, .sel-row.is-disabled .sel-row-main > :not(.sel-unavail) { opacity: 0.55; }
+.sel-dot {
+  flex: none; display: grid; place-items: center; width: 16px; height: 16px; margin-top: 2px;
+  border-radius: var(--r-pill); border: 1.5px solid var(--border-strong); background: var(--surface);
+  transition: border-color var(--dur) var(--ease);
+}
+.sel-dot::after { content: ""; width: 8px; height: 8px; border-radius: var(--r-pill); background: transparent; }
+.sel-row.is-selected .sel-dot { border-color: var(--accent); }
+.sel-row.is-selected .sel-dot::after { background: var(--accent); }
+.sel-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sel-row-head { display: flex; align-items: center; flex-wrap: wrap; gap: 2px var(--sp-2); min-width: 0; }
+.sel-row .sel-title { font-size: var(--fs-13-5); }
+.sel-row-meta {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 4px;
+  font-size: var(--fs-12); color: var(--text-3); white-space: nowrap;
+}
+.sel-row.is-selected .sel-row-meta { color: var(--text-2); }
+.sel-row .sel-desc { font-size: var(--fs-12); line-height: 1.45; }
+.sel-row .sel-unavail { margin-top: 2px; }
+
+/* 결과물: 그룹별 칩(테두리 상자 없이 세로로) */
+.sp-body .format-groups { grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); }
+.sp-body .format-group {
+  flex-direction: column; align-items: stretch; gap: var(--sp-2);
+  padding: 0; border: 0; border-radius: 0; background: transparent;
+}
+.sp-body .format-group-label { width: auto; }
+.sp-body .format-group .chips { gap: var(--sp-1) var(--sp-2); }
+.sp-body .chip-select { height: 30px; font-size: var(--fs-12-5); }
+
+/* 옵션: 스위치 줄 */
+.sp-options { display: flex; flex-direction: column; gap: var(--sp-1); }
+.sp-options .option-row { align-items: flex-start; gap: var(--sp-4); padding: var(--sp-2) 0; }
+.sp-options .option-title { font-size: var(--fs-13); }
+.sp-options .option-desc { font-size: var(--fs-12); color: var(--text-3); line-height: 1.45; }
+.sp-options .switch { margin-top: 2px; }
+
+/* 고급 설정: 항상 펼쳐 둔다 */
+.sp-adv { display: flex; flex-direction: column; gap: var(--sp-4); }
+.sp-adv .adv-field { gap: var(--sp-1); }
+.sp-adv .field-hint { line-height: 1.45; }
+.sp-adv .seg { display: flex; width: 100%; }
+.sp-adv .seg-btn { flex: 1 1 0; min-width: 0; padding: 0 var(--sp-1); font-size: var(--fs-12-5); }
+.sp-adv .adv-year { flex-direction: column; align-items: stretch; }
+.sp-adv .adv-year-input:has(> .input[hidden]) { display: none; }
+.sp-adv .adv-cost-row { gap: var(--sp-2) var(--sp-4); }
+.sp-adv .adv-grid {
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  padding-top: var(--sp-4); border-top: 1px dashed var(--border);
+}
+.adv-num-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); }
+.adv-num-row .adv-field-head { flex: 1 1 140px; min-width: 0; }
+.sp-adv .step-btn { width: 28px; height: 28px; }
+.sp-adv .stepper-input .input-num { width: 48px; height: 28px; }
+.adv-num .stepper-input .field-unit { min-width: 2.6em; }
+
+/* ───────── 6. 좁은 화면: 패널은 오른쪽 시트 ───────── */
+@media (max-width: 1099px) {
+  .home { display: block; }
+  .btn.panel-toggle, .btn.sp-close { display: inline-flex; }
+  .settings-panel {
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 60;
+    width: min(380px, 92vw); height: auto;
+    box-shadow: none; transform: translateX(100%); visibility: hidden;
+    transition: transform 220ms var(--ease), visibility 0s linear 220ms;
+  }
+  .home.is-panel-open .settings-panel {
+    transform: none; visibility: visible; box-shadow: var(--shadow-pop);
+    transition: transform 220ms var(--ease);
+  }
+  .home.is-panel-open .sp-scrim {
+    display: block; position: fixed; inset: 0; z-index: 55;
+    background: var(--scrim); animation: fade-in 160ms var(--ease);
+  }
+  body.has-sheet { overflow: hidden; }
+}
+@media (max-width: 899px) {
+  /* 레일이 위쪽 가로 바(--topbar-h)가 된다: 바깥 상자와 가운데 열 모두 그 높이만큼 줄인다 */
+  .home { min-height: calc(100dvh - var(--banner-h, 0px) - var(--topbar-h)); }
+  .home-main { min-height: calc(100dvh - var(--banner-h, 0px) - var(--topbar-h)); padding-top: var(--sp-6); }
+}
+@media (max-width: 640px) {
+  .composer-est { flex-basis: 100%; order: -1; }
+  .composer-foot .btn-start { flex: 1 1 120px; width: auto; min-width: 0; }
+  .panel-toggle-sum { max-width: 8em; }
+  .composer .prompt-foot { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .composer .examples { flex: 1 1 100%; }
+  .composer .prompt-foot-end { margin-left: auto; }
+}
+
+/* ───────── 7. 토스트 위치: 프롬프트 입력을 가리지 않게 ───────── */
+body.has-runbar .toasts { bottom: calc(var(--composer-h, 210px) + var(--sp-3)); }
+@media (min-width: 1100px) {
+  body.has-runbar .toasts { right: calc(var(--panel-w) + var(--sp-6)); }
+}
+
+/* ───────── 8. 움직임 줄이기 ───────── */
+@media (prefers-reduced-motion: reduce) {
+  .settings-panel, .home.is-panel-open .settings-panel { transition: none !important; }
+  .home.is-panel-open .sp-scrim { animation: none; }
+}

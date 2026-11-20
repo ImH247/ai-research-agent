@@ -1,15 +1,14 @@
-// 시작점: 백엔드 시작(한 탭 잠금), 설정 로드, 테마, API 키 상태, 셸(사이드바·기록·키·테마·안내 띠), 해시 라우터,
-// 조사 파일 열기(끌어다 놓기 포함), 떠나기 경고.
+// 시작점: 백엔드 시작(한 탭 잠금), 설정 로드, 테마, API 키 상태, 셸(왼쪽 레일·설정 창·안내 띠), 해시 라우터,
+// 조사 파일 열기(끌어다 놓기 포함), 떠나기 경고. 조사 기록 목록은 history.js(처음 화면 아래쪽)가 그린다.
 
 import {
-  api, ApiError, MOCK, startBackend, saveRunFile, canTakeOver, yieldTab, TAB_CHANNEL,
+  api, ApiError, MOCK, startBackend, canTakeOver, yieldTab, TAB_CHANNEL,
 } from './api.js';
 import {
   store, getApiKey, setApiKey, clearApiKey, isKeyRemembered, keyTail, saveTheme, demoSpeedPref,
 } from './store.js';
 import {
-  h, icon, button, setBusy, toast, modal, confirmDialog, menu, emptyState, skeleton, clear,
-  fmtMinutes, fmtInt, stageLabel, str, arr, obj, num, STATUS_LABEL, ACTIVE_STATUSES, uid,
+  h, icon, button, setBusy, toast, modal, emptyState, clear, str, arr, obj, ACTIVE_STATUSES, uid,
 } from './ui.js';
 import { mountCompose } from './views/compose.js';
 import { mountRun } from './views/run.js';
@@ -18,8 +17,8 @@ import { openHelp, startDemo } from './onboarding.js';
 const APP_NAME = 'AI Research Agent';
 const RUN_TABS = new Set(['report', 'evidence', 'verify', 'process', 'qa']);
 const KEY_CONSOLE_URL = 'https://console.anthropic.com/settings/keys';
-const MAX_TITLE = 80;
 const MAX_RUN_FILE = 20 * 1024 * 1024;
+const NARROW_QUERY = '(max-width: 899px)'; // app.css 21번의 좁은 화면 기준과 같다
 
 let shell = null;        // 셸 요소 참조
 let current = null;      // {key, unmount}
@@ -50,8 +49,8 @@ function parseHash() {
 function route(force = false) {
   if (!shell) return;
   const r = parseHash();
-  closeDrawer();
-  highlightHistory(r.runId || null);
+  const view = r.name === 'run' ? 'run' : 'home';
+  if (document.body.dataset.view !== view) document.body.dataset.view = view;
 
   // 같은 실행의 탭만 바뀌면 뷰에게 맡긴다
   if (!force && current && current.key === r.key && typeof current.unmount?.update === 'function') {
@@ -68,14 +67,24 @@ function route(force = false) {
   void main.offsetWidth;
   main.classList.add('is-entering');
   const container = h('div', { class: 'view' });
+  // 진행·결과 화면: 왼쪽 기록이 없으므로 맨 위에 "← 처음 화면" 링크를 둔다.
+  // run.js는 받은 상자의 내용을 통째로 바꾸므로(replaceChildren) 링크와 화면 내용을 따로 담는다.
+  let target = container;
+  if (r.name === 'run') {
+    target = h('div', { class: 'view-body' });
+    container.append(
+      h('div', { class: 'back-row' },
+        h('a', { class: 'back-link', href: '#/' }, icon('arrow-left', 14), h('span', null, '처음 화면'))),
+      target);
+  }
   main.append(container);
   document.title = APP_NAME;
   let unmount = null;
   try {
-    unmount = r.name === 'run' ? mountRun(container, { runId: r.runId, tab: r.tab }) : mountCompose(container, {});
+    unmount = r.name === 'run' ? mountRun(target, { runId: r.runId, tab: r.tab }) : mountCompose(target, {});
   } catch (err) {
     console.error(err);
-    container.append(emptyState({ icon: 'alert-triangle', title: '화면을 그리지 못했습니다', text: str(err?.message) }));
+    target.append(emptyState({ icon: 'alert-triangle', title: '화면을 그리지 못했습니다', text: str(err?.message) }));
   }
   const hadView = !!prev;
   current = { key: r.key, unmount };
@@ -101,24 +110,44 @@ function setTheme(theme) {
   store.set({ theme: t });
 }
 
+const THEME_OPTS = [
+  ['light', 'sun', '라이트'],
+  ['dark', 'moon', '다크'],
+  ['system', 'monitor', '시스템 설정'],
+];
+
+/** 설정 창의 3칸 테마 세그먼트. 창이 닫힐 때 부를 구독 해제 함수를 함께 돌려준다. */
 function themeControl() {
-  const opts = [
-    ['light', 'sun', '라이트'],
-    ['dark', 'moon', '다크'],
-    ['system', 'monitor', '시스템 설정'],
-  ];
-  const wrap = h('div', { class: 'seg seg-icons', role: 'group', 'aria-label': '테마' });
+  const wrap = h('div', { class: 'seg theme-seg', role: 'group', 'aria-label': '테마' });
   const render = () => {
     const theme = store.get().theme;
-    wrap.replaceChildren(...opts.map(([id, ic, label]) => h('button', {
+    wrap.replaceChildren(...THEME_OPTS.map(([id, ic, label]) => h('button', {
       type: 'button', class: 'seg-btn', title: label, 'aria-label': `테마: ${label}`,
       'aria-pressed': theme === id ? 'true' : 'false',
       onClick: () => setTheme(id),
-    }, icon(ic, 16))));
+    }, icon(ic, 16), h('span', { 'aria-hidden': 'true' }, label))));
   };
   render();
+  const unsub = store.subscribe((s, p) => { if (s.theme !== p.theme) render(); });
+  return [wrap, unsub];
+}
+
+/** 레일의 테마 버튼: 누를 때마다 라이트 → 다크 → 시스템 순환 */
+function themeCycleButton() {
+  const btn = h('button', { type: 'button', class: 'rail-btn rail-theme' });
+  const idx = () => Math.max(0, THEME_OPTS.findIndex(([id]) => id === store.get().theme));
+  const render = () => {
+    const [, ic, label] = THEME_OPTS[idx()];
+    const [, , nextLabel] = THEME_OPTS[(idx() + 1) % THEME_OPTS.length];
+    const text = `테마: ${label}(누르면 ${nextLabel})`;
+    btn.setAttribute('aria-label', text);
+    btn.title = text;
+    btn.replaceChildren(icon(ic, 18));
+  };
+  btn.addEventListener('click', () => setTheme(THEME_OPTS[(idx() + 1) % THEME_OPTS.length][0]));
+  render();
   store.subscribe((s, p) => { if (s.theme !== p.theme) render(); });
-  return wrap;
+  return btn;
 }
 
 // ───────────────────────── API 키 ─────────────────────────
@@ -202,7 +231,11 @@ export function openKeyDialog(opts = {}) {
     });
   }
 
-  const body = h('div', { class: 'key-form' },
+  const keyTitleId = uid('set-key');
+  const themeTitleId = uid('set-theme');
+  const [themeSeg, unsubTheme] = themeControl();
+  const keySection = h('section', { class: 'settings-sec key-form', 'aria-labelledby': keyTitleId },
+    h('h3', { class: 'settings-sec-title', id: keyTitleId }, 'API 키'),
     h('div', { class: 'note note-info' }, icon('shield-check', 16),
       h('span', null, 'API 키는 이 브라우저에만 저장되고 Anthropic API(api.anthropic.com)로만 전송됩니다. 이 사이트에는 서버가 없습니다. ',
         h('a', { href: KEY_CONSOLE_URL, target: '_blank', rel: 'noopener noreferrer', class: 'key-console-link' },
@@ -221,11 +254,15 @@ export function openKeyDialog(opts = {}) {
         h('b', null, '키가 없어도 둘러볼 수 있습니다'),
         h('span', null, '기록된 샘플 조사를 재생합니다(지금 적은 주제가 아니라 샘플 주제입니다). 적어 둔 글은 그대로 남습니다.')),
       demoBtn) : null);
+  const themeSection = h('section', { class: 'settings-sec', 'aria-labelledby': themeTitleId },
+    h('h3', { class: 'settings-sec-title', id: themeTitleId }, '화면 테마'),
+    themeSeg);
+  const body = h('div', { class: 'settings-form' }, keySection, themeSection);
 
   dlg = modal({
-    title: 'API 키',
+    title: '설정',
     body,
-    onClose: () => unsub(),
+    onClose: () => { unsub(); unsubTheme(); },
     actions: [
       {
         label: '지우기', kind: 'ghost', icon: 'trash',
@@ -271,21 +308,24 @@ export function openKeyDialog(opts = {}) {
   return dlg;
 }
 
-function keyButton() {
-  const btn = h('button', { type: 'button', class: 'key-btn', onClick: () => openKeyDialog() });
+/** 레일의 설정 버튼: 톱니 아이콘 + 오른쪽 위 키 상태 점. 누르면 설정 창(API 키). */
+function settingsButton() {
+  const btn = h('button', { type: 'button', class: 'rail-btn rail-settings', 'aria-haspopup': 'dialog', onClick: () => openKeyDialog() });
   const render = () => {
-    const t = keyStatusText(store.get().keyStatus);
-    btn.replaceChildren(
-      h('span', { class: 'key-btn-icon' }, icon('key', 16), h('span', { class: ['status-dot', 'status-dot-sm', `tone-${t.tone}`] })),
-      h('span', { class: 'key-btn-text' }, h('span', { class: 'key-btn-label' }, t.label), h('span', { class: 'key-btn-sub' }, t.sub)));
-    btn.setAttribute('aria-label', `API 키 설정: ${t.label}, ${t.sub}`);
+    const ks = store.get().keyStatus;
+    const t = keyStatusText(ks);
+    // 키가 없으면 점이 눈에 띄게(주의 색) 보인다
+    const tone = ks.state === 'none' ? 'warning' : t.tone;
+    btn.replaceChildren(icon('settings', 18), h('span', { class: ['status-dot', 'rail-dot', `tone-${tone}`], 'aria-hidden': 'true' }));
+    btn.setAttribute('aria-label', `설정: API 키 입력, ${t.sub}`);
+    btn.title = `설정 (API 키: ${t.sub})`;
   };
   render();
   store.subscribe((s, p) => { if (s.keyStatus !== p.keyStatus || s.config !== p.config) render(); });
   return btn;
 }
 
-// ───────────────────────── 기록 목록 ─────────────────────────
+// ───────────────────────── 기록 목록 (그리기는 history.js) ─────────────────────────
 
 /** 기록 목록을 다시 불러온다 */
 export async function refreshRuns() {
@@ -308,214 +348,6 @@ function scheduleRunsRefresh() {
   const runs = arr(store.get().runs);
   const active = runs.some((r) => ACTIVE_STATUSES.has(r?.status));
   if (active) runsTimer = setTimeout(refreshRuns, document.hidden ? 15000 : 5000);
-}
-
-function runTitle(r) {
-  return str(r.custom_title).trim() || str(r.topic).trim() || str(r.prompt).trim() || '제목 없는 조사';
-}
-
-function historySub(r, cfg) {
-  if (ACTIVE_STATUSES.has(r.status)) {
-    if (r.status === 'awaiting_plan') return '계획 검토를 기다리는 중';
-    if (r.status === 'queued') return '시작 대기 중';
-    return `${stageLabel(r.stage, cfg)} 단계`;
-  }
-  if (r.status === 'error') return '오류로 멈춤';
-  if (r.status === 'cancelled') return '중단됨';
-  if (r.status === 'interrupted') return '페이지를 닫아 멈춤';
-  const parts = [str(r.model_label) || str(r.model)];
-  const el = num(r.elapsed_s);
-  if (el !== null) parts.push(fmtMinutes(el));
-  const inc = num(obj(r.counts).included);
-  if (inc !== null) parts.push(`채택 ${fmtInt(inc)}건`);
-  return parts.filter(Boolean).join(' · ');
-}
-
-function historyItem(r, cfg, activeId) {
-  const id = str(r.id);
-  const status = str(r.status, 'done');
-  const topic = runTitle(r);
-  const running = ACTIVE_STATUSES.has(status);
-  const finished = !!r.has_result || status === 'done';
-  const more = h('button', {
-    type: 'button', class: 'hist-more btn btn-ghost btn-icon btn-sm', 'aria-label': `${topic} 메뉴`, 'aria-haspopup': 'menu', 'aria-expanded': 'false',
-    onClick: (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      menu(more, [
-        {
-          label: '이름 바꾸기', icon: 'edit', disabled: !!r.sample,
-          note: r.sample ? '샘플은 이름을 바꿀 수 없습니다' : null,
-          onClick: () => renameRun(r),
-        },
-        {
-          label: '조사 파일 저장', icon: 'download', disabled: !finished,
-          note: finished ? null : '끝난 조사만 저장할 수 있습니다',
-          title: "이 사이트의 '조사 파일 열기'로 다른 컴퓨터에서도 결과를 다시 볼 수 있습니다.",
-          onClick: () => exportRun(id),
-        },
-        { separator: true },
-        {
-          label: '삭제', icon: 'trash', danger: true, disabled: !!r.sample || running,
-          note: r.sample ? '샘플은 삭제할 수 없습니다' : running ? '진행 중에는 삭제할 수 없습니다' : null,
-          onClick: () => deleteRun(id, topic),
-        },
-      ]);
-    },
-  }, icon('more-horizontal', 16));
-
-  const tags = [];
-  if (r.sample) tags.push(h('span', { class: 'tag' }, '샘플'));
-  if (r.demo) tags.push(h('span', { class: 'tag' }, '데모'));
-  if (r.imported) tags.push(h('span', { class: 'tag' }, '가져옴'));
-  if (r.parent_id) tags.push(h('span', { class: 'tag', title: '보고서 다시 쓰기로 만든 결과' }, '다시 씀'));
-  if (r.resumable && !running) tags.push(h('span', { class: 'tag tag-accent', title: '멈춘 단계부터 이어서 진행할 수 있습니다' }, '이어서 가능'));
-
-  return h('li', { class: 'hist-li' },
-    h('a', {
-      class: ['hist-item', id === activeId ? 'is-current' : ''], href: `#/run/${encodeURIComponent(id)}`,
-      'aria-current': id === activeId ? 'page' : null, dataset: { id },
-      title: topic,
-    },
-    h('span', { class: ['status-dot', `st-${status}`], role: 'img', 'aria-label': STATUS_LABEL[status] || status }),
-    h('span', { class: 'hist-body' },
-      h('span', { class: 'hist-topic' }, topic),
-      h('span', { class: 'hist-sub' }, tags, h('span', { class: 'hist-sub-text' }, historySub(r, cfg))))),
-    more);
-}
-
-function renameRun(r) {
-  const id = str(r.id);
-  const inputId = uid('rename');
-  const input = h('input', {
-    id: inputId, class: 'input', type: 'text', maxlength: String(MAX_TITLE), autocomplete: 'off',
-    value: str(r.custom_title).trim() || str(r.topic).trim(),
-  });
-  const counter = h('span', { class: 'field-hint num' });
-  const sync = () => { counter.textContent = `${fmtInt([...input.value].length)} / ${MAX_TITLE}`; };
-  input.addEventListener('input', sync);
-  sync();
-  const dlg = modal({
-    title: '이름 바꾸기',
-    body: h('div', { class: 'key-form' },
-      h('label', { class: 'field-label', htmlFor: inputId }, '기록에 보일 이름'),
-      input,
-      h('div', { class: 'rename-foot' },
-        h('span', { class: 'field-hint' }, '비워 두면 원래 주제로 돌아갑니다.'), counter)),
-    actions: [
-      { label: '취소', kind: 'secondary' },
-      {
-        label: '저장', kind: 'primary', icon: 'check',
-        onClick: async ({ close, button: btn }) => {
-          setBusy(btn, true, '저장하는 중…');
-          try {
-            await api.rename(id, input.value.trim());
-            close();
-            toast('이름을 바꿨습니다.', 'success');
-            refreshRuns();
-          } catch (err) {
-            setBusy(btn, false);
-            toast(str(err?.message, '이름을 바꾸지 못했습니다.'), 'error');
-          }
-        },
-      },
-    ],
-  });
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.isComposing) {
-      e.preventDefault();
-      dlg.el.querySelector('.modal-foot .btn-primary')?.click();
-    }
-  });
-  requestAnimationFrame(() => { input.focus(); input.select(); });
-}
-
-async function exportRun(id) {
-  try {
-    const name = await saveRunFile(id);
-    toast(`조사 파일을 저장했습니다: ${name}`, 'success');
-  } catch (err) {
-    toast(str(err?.message, '조사 파일을 저장하지 못했습니다.'), 'error');
-  }
-}
-
-async function deleteRun(id, topic) {
-  const ok = await confirmDialog(`"${topic.length > 60 ? `${topic.slice(0, 59)}…` : topic}" 기록을 삭제할까요? 보고서와 Q&A 기록도 함께 지워지며 되돌릴 수 없습니다.`, '삭제', { title: '기록 삭제', danger: true });
-  if (!ok) return;
-  try {
-    await api.remove(id);
-    toast('기록을 삭제했습니다.', 'success');
-    if (parseHash().runId === id) navigate('#/');
-    refreshRuns();
-  } catch (err) {
-    toast(str(err?.message, '삭제하지 못했습니다.'), 'error');
-  }
-}
-
-function matchesQuery(r, q) {
-  if (!q) return true;
-  return [r.custom_title, r.topic, r.prompt].some((v) => str(v).toLocaleLowerCase().includes(q));
-}
-
-function renderHistory() {
-  if (!shell) return;
-  const { runs, config, historyQuery } = store.get();
-  const list = shell.history;
-  const activeId = parseHash().runId || null;
-  // 항목 메뉴가 열려 있으면 닫힌 뒤에 다시 그린다
-  if (list.querySelector('.hist-more[aria-expanded="true"]')) {
-    setTimeout(renderHistory, 1500);
-    return;
-  }
-  if (runs === null) {
-    list.replaceChildren(h('li', { class: 'hist-skel' }, skeleton(4)));
-    return;
-  }
-  if (!runs.length) {
-    list.replaceChildren(h('li', { class: 'hist-empty' }, '아직 조사 기록이 없습니다. 주제를 적고 첫 조사를 시작해 보세요.'));
-    return;
-  }
-  const q = str(historyQuery).trim().toLocaleLowerCase();
-  const shown = runs.filter((r) => r && r.id && matchesQuery(r, q));
-  if (!shown.length) {
-    list.replaceChildren(h('li', { class: 'hist-empty' }, '검색 결과가 없습니다'));
-    return;
-  }
-  list.replaceChildren(...shown.map((r) => historyItem(r, config, activeId)));
-}
-
-function historySearch() {
-  const input = h('input', {
-    class: 'input hist-search-input', type: 'search', placeholder: '기록 검색', autocomplete: 'off', spellcheck: 'false',
-    'aria-label': '기록 검색 (주제·프롬프트·이름)', value: str(store.get().historyQuery),
-  });
-  const clearBtn = h('button', {
-    type: 'button', class: 'hist-search-clear btn btn-ghost btn-icon btn-xs', 'aria-label': '검색어 지우기',
-    onClick: () => { input.value = ''; update(); input.focus(); },
-  }, icon('x', 14));
-  clearBtn.hidden = !input.value;
-  let timer = 0;
-  function update() {
-    clearBtn.hidden = !input.value;
-    clearTimeout(timer);
-    timer = setTimeout(() => store.set({ historyQuery: input.value }), 120);
-  }
-  input.addEventListener('input', update);
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && input.value) { e.preventDefault(); e.stopPropagation(); input.value = ''; update(); }
-  });
-  return h('div', { class: 'hist-search', role: 'search' },
-    h('span', { class: 'hist-search-icon', 'aria-hidden': 'true' }, icon('search', 14)), input, clearBtn);
-}
-
-function highlightHistory(activeId) {
-  if (!shell) return;
-  for (const a of shell.history.querySelectorAll('.hist-item')) {
-    const on = a.dataset.id === activeId;
-    a.classList.toggle('is-current', on);
-    if (on) a.setAttribute('aria-current', 'page');
-    else a.removeAttribute('aria-current');
-  }
 }
 
 // ───────────────────────── 조사 파일 열기 ─────────────────────────
@@ -552,21 +384,22 @@ async function importFile(file) {
   }
 }
 
-function openFileButton() {
-  const fileInput = h('input', {
-    type: 'file', accept: '.json,application/json', class: 'sr-only', tabindex: '-1', 'aria-hidden': 'true',
-    onChange: () => {
-      const f = fileInput.files && fileInput.files[0];
-      fileInput.value = '';
-      importFile(f);
-    },
-  });
-  const btn = h('button', {
-    type: 'button', class: 'btn btn-ghost btn-sm sidebar-tool',
-    title: '저장해 둔 조사 파일(.json)을 엽니다. 창에 끌어다 놓아도 됩니다.',
-    onClick: () => { closeDrawer(); fileInput.click(); },
-  }, icon('folder-open', 14), h('span', { class: 'btn-label' }, '조사 파일 열기'));
-  return [btn, fileInput];
+let fileInput = null; // 숨은 파일 선택 칸(하나만 만들어 둔다)
+
+/** "조사 파일 열기": 파일 선택 창을 연다(history.js의 버튼이 부른다). 고른 파일은 importFile로 가져온다. */
+export function pickRunFile() {
+  if (!fileInput || !fileInput.isConnected) {
+    fileInput = h('input', {
+      type: 'file', accept: '.json,application/json', class: 'sr-only', tabindex: '-1', 'aria-hidden': 'true',
+      onChange: () => {
+        const f = fileInput.files && fileInput.files[0];
+        fileInput.value = '';
+        importFile(f);
+      },
+    });
+    document.body.append(fileInput);
+  }
+  fileInput.click();
 }
 
 function dragHasFiles(e) {
@@ -614,28 +447,6 @@ function wireDropImport() {
 
 // ───────────────────────── 셸 ─────────────────────────
 
-function openDrawer() {
-  document.body.classList.add('drawer-open');
-  shell.menuBtn.setAttribute('aria-expanded', 'true');
-  shell.sidebar.querySelector('.btn-new')?.focus();
-}
-function closeDrawer() {
-  if (!shell) return;
-  const wasOpen = document.body.classList.contains('drawer-open');
-  document.body.classList.remove('drawer-open');
-  shell.menuBtn.setAttribute('aria-expanded', 'false');
-  // 서랍 안에 있던 초점이 숨겨진 사이드바에 남지 않게 메뉴 버튼으로 돌려준다(메뉴 버튼은 좁은 화면에서만 보인다)
-  if (wasOpen && shell.sidebar.contains(document.activeElement) && getComputedStyle(shell.menuBtn).display !== 'none') {
-    try { shell.menuBtn.focus({ preventScroll: true }); } catch { /* 무시 */ }
-  }
-}
-
-function wordmark() {
-  return h('a', { class: 'wordmark', href: '#/', 'aria-label': `${APP_NAME} 처음 화면` },
-    h('span', { class: 'logo' }, icon('logo', 16)),
-    h('span', { class: 'wordmark-text' }, APP_NAME));
-}
-
 function renderBanners() {
   if (!shell) return;
   const { config } = store.get();
@@ -652,54 +463,44 @@ function renderBanners() {
   shell.banners.replaceChildren(...items);
 }
 
-function renderShell(root) {
-  const history = h('ul', { class: 'hist-list', 'aria-label': '조사 기록' });
-  const newBtn = h('a', { class: 'btn btn-primary btn-new', href: '#/', onClick: () => { if (location.hash === '#/' || !location.hash) navigate('#/'); } },
-    icon('plus', 16), h('span', { class: 'btn-label' }, '새 조사'));
+/** 왼쪽 레일(좁은 화면에서는 위쪽 가로 바): 로고 · 새 조사 · (빈 공간) · 도움말 · 설정 · 테마 */
+function renderRail() {
+  const logo = h('a', { class: 'rail-btn rail-logo', href: '#/', 'aria-label': `${APP_NAME} 처음 화면`, title: APP_NAME },
+    h('span', { class: 'logo' }, icon('logo', 16)),
+    h('span', { class: 'rail-wordmark', 'aria-hidden': 'true' }, APP_NAME));
+  const newBtn = h('a', {
+    class: 'rail-btn rail-new', href: '#/', 'aria-label': '새 조사', title: '새 조사',
+    onClick: () => { if (location.hash === '#/' || !location.hash) navigate('#/'); },
+  }, icon('plus', 18));
   const helpBtn = h('button', {
-    type: 'button', class: 'btn btn-ghost btn-sm sidebar-tool', title: '처음 사용 안내를 다시 봅니다',
-    onClick: () => { closeDrawer(); openHelp(); },
-  }, icon('help', 14), h('span', { class: 'btn-label' }, '도움말'));
-  const sidebar = h('aside', { class: 'sidebar', id: 'sidebar', 'aria-label': '사이드바' },
-    h('div', { class: 'sidebar-head' }, wordmark(),
-      h('button', { type: 'button', class: 'btn btn-ghost btn-icon btn-sm drawer-close', 'aria-label': '메뉴 닫기', onClick: closeDrawer }, icon('x', 16))),
-    h('div', { class: 'sidebar-new' }, newBtn),
-    h('nav', { class: 'sidebar-nav', 'aria-label': '조사 기록' },
-      h('div', { class: 'sidebar-label' },
-        h('span', null, '기록'),
-        h('button', {
-          type: 'button', class: 'btn btn-ghost btn-icon btn-xs', 'aria-label': '기록 새로 고침', title: '새로 고침',
-          onClick: () => refreshRuns(),
-        }, icon('refresh', 14))),
-      historySearch(),
-      history),
-    h('div', { class: 'sidebar-foot' },
-      h('div', { class: 'sidebar-tools' }, openFileButton(), helpBtn),
-      keyButton(), themeControl()));
+    type: 'button', class: 'rail-btn rail-help', 'aria-label': '도움말', title: '처음 사용 안내를 다시 봅니다',
+    onClick: () => openHelp(),
+  }, icon('help', 18));
+  const rail = h('nav', { class: 'rail', 'aria-label': '주 메뉴' },
+    logo, newBtn, h('span', { class: 'rail-spacer', 'aria-hidden': 'true' }), helpBtn, settingsButton(), themeCycleButton());
 
-  const menuBtn = h('button', {
-    type: 'button', class: 'btn btn-ghost btn-icon', 'aria-label': '메뉴 열기', 'aria-controls': 'sidebar', 'aria-expanded': 'false',
-    onClick: openDrawer,
-  }, icon('menu', 18));
-  const topbar = h('header', { class: 'topbar' }, menuBtn, wordmark(),
-    h('a', { class: 'btn btn-secondary btn-sm topbar-new', href: '#/' }, icon('plus', 14), h('span', { class: 'btn-label' }, '새 조사')));
+  // 좁은 화면에서는 레일이 위쪽 바가 된다. result.js는 '.topbar'의 높이로 고정 탭 줄 위치를 맞추므로
+  // 그때만 같은 표시 클래스를 붙인다(넓은 화면의 세로 레일은 위쪽을 가리지 않는다).
+  let mq = null;
+  try { mq = window.matchMedia(NARROW_QUERY); } catch { mq = null; }
+  const syncTopbar = () => rail.classList.toggle('topbar', !!mq?.matches);
+  syncTopbar();
+  try { mq?.addEventListener('change', syncTopbar); } catch { /* 오래된 브라우저: 처음 값만 쓴다 */ }
+  return rail;
+}
+
+function renderShell(root) {
   const banners = h('div', { class: 'banners' });
   const main = h('main', { class: 'main', id: 'main', tabindex: '-1' });
-  const scrim = h('div', { class: 'drawer-scrim', onClick: closeDrawer });
 
   root.replaceChildren(
     h('a', { class: 'skip-link', href: '#main', onClick: (e) => { e.preventDefault(); main.focus(); } }, '본문으로 건너뛰기'),
-    h('div', { class: 'app' }, sidebar, scrim, h('div', { class: 'app-main' }, topbar, banners, main)));
+    h('div', { class: 'app' }, renderRail(), h('div', { class: 'app-main' }, banners, main)));
 
-  shell = { sidebar, history, main, banners, menuBtn };
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && document.body.classList.contains('drawer-open') && !document.querySelector('.modal-root, .popover')) closeDrawer();
-  });
+  shell = { main, banners };
   store.subscribe((s, p) => {
-    if (s.runs !== p.runs || s.config !== p.config || s.historyQuery !== p.historyQuery) renderHistory();
     if (s.config !== p.config) renderBanners();
   });
-  renderHistory();
   renderBanners();
 }
 
@@ -825,7 +626,8 @@ function stopThisTab() {
   current = null;
   shell = null;
   for (const el of document.querySelectorAll('.modal-root, .popover')) el.remove();
-  document.body.classList.remove('has-modal', 'drawer-open', 'has-runbar');
+  document.body.classList.remove('has-modal', 'has-runbar');
+  delete document.body.dataset.view;
 }
 
 /** 다른 탭이 넘겨받은 뒤 이 탭에 보이는 전체 화면 안내 */

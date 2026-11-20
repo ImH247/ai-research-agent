@@ -1,5 +1,5 @@
 // 처음 사용 안내 카드와 데모 바로 보기 (WEB_FEATURES F1·F9).
-// 작성 화면 맨 위 카드, 사이드바 "도움말"(작성 화면이면 카드를 다시 보이고, 아니면 모달), 키 창의 "키 없이 데모로 보기"가 함께 쓴다.
+// 처음 화면 위쪽(.home-top) 카드, 레일의 "도움말"(처음 화면이면 카드를 다시 보이고, 아니면 모달), 키 창의 "키 없이 데모로 보기"가 함께 쓴다.
 
 import { api } from './api.js';
 import { store, getApiKey, setOnboardingDismissed, demoSpeedPref, savePrefs } from './store.js';
@@ -119,9 +119,9 @@ export function onboardingCard({ onClose, onDismiss, beforeDemo } = {}) {
   return card;
 }
 
-/** 사이드바 "도움말": 작성 화면이면 카드를 다시 보이고, 다른 화면이면 모달로 띄운다 */
+/** 레일의 "도움말": 처음 화면(.home)이면 위쪽(.home-top)의 카드를 다시 보이고 그리로 스크롤, 다른 화면이면 모달로 띄운다 */
 export function openHelp() {
-  if (document.querySelector('.page.compose')) {
+  if (document.querySelector('.home .onb-slot, .page.compose')) {
     store.set({ helpRequest: (Number(store.get().helpRequest) || 0) + 1 });
     return;
   }
@@ -149,12 +149,13 @@ export function composeOnboarding(container) {
     if (!show) { slot.replaceChildren(); return; }
     card = onboardingCard({
       onClose: () => { hidden = true; render(); },
-      onDismiss: () => { hidden = true; setOnboardingDismissed(true); render(); toast("안내를 숨겼습니다. 사이드바의 '도움말'로 다시 볼 수 있습니다.", 'info'); },
+      onDismiss: () => { hidden = true; setOnboardingDismissed(true); render(); toast("안내를 숨겼습니다. '도움말'(물음표 아이콘)로 다시 볼 수 있습니다.", 'info'); },
     });
     slot.replaceChildren(card);
     if (force) {
       requestAnimationFrame(() => {
-        card?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        const smooth = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        card?.scrollIntoView({ block: 'start', behavior: smooth ? 'smooth' : 'auto' });
         card?.querySelector('button')?.focus({ preventScroll: true });
       });
     }

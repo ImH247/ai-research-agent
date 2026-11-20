@@ -17,13 +17,13 @@
 2. 미리 실제로 실행해 둔 조사 기록이 진행 화면에서 그대로 재생되고, 끝나면 결과 화면이 열립니다.
 3. 결과 화면에서 보고서, 근거, 검증, 과정 탭을 보고 PDF·Word·PPT·Markdown으로 내려받아 봅니다.
 
-왼쪽 기록 목록의 **샘플** 두 개("생성형 AI 활용이 대학원생의 연구 생산성과 연구 품질에 미치는 영향", "롤러를 활용한 센서 제작 공정")도 키 없이 바로 열립니다.
+첫 화면 아래쪽 **최근 조사**의 **샘플** 두 개("생성형 AI 활용이 대학원생의 연구 생산성과 연구 품질에 미치는 영향", "롤러를 활용한 센서 제작 공정")도 키 없이 바로 열립니다.
 두 샘플은 2026-11-02에 Claude Opus 5.5로 실제 실행한 결과입니다.
 
 ### 실제로 조사하기 (본인 API 키 필요)
-1. 오른쪽 위 **API 키** 버튼을 눌러 Anthropic API 키를 넣습니다. 키는 [console.anthropic.com → API Keys](https://console.anthropic.com/settings/keys)에서 만듭니다.
-2. **연구 주제**를 적습니다. 예시 칩을 눌러 채울 수도 있고, **주제 다듬기**를 누르면 더 구체적인 주제 3개를 제안받습니다.
-3. **모델**, **조사 깊이**, **결과물 형식**을 고르고 **조사 시작**을 누릅니다. `Ctrl+Enter`로도 시작합니다.
+1. 왼쪽의 **설정**(톱니) 아이콘을 눌러 Anthropic API 키를 넣습니다. 키는 [console.anthropic.com → API Keys](https://console.anthropic.com/settings/keys)에서 만듭니다.
+2. 화면 아래쪽 입력창에 **연구 주제**를 적습니다. 예시 칩을 눌러 채울 수도 있고, **주제 다듬기**를 누르면 더 구체적인 주제 3개를 제안받습니다.
+3. 오른쪽 **조사 설정**에서 **모델**, **조사 깊이**, **결과물 형식**과 고급 설정(검색 시작 연도, 보고서 언어, 최대 비용 등)을 고르고 **조사 시작**을 누릅니다. `Ctrl+Enter`로도 시작합니다.
 4. 진행 화면에서 단계, 활동 기록, 비용, 남은 시간을 봅니다. "조사 계획을 먼저 검토하기"를 켰다면 계획을 고친 뒤 승인합니다.
 5. 끝나면 결과 화면이 열립니다. 고른 형식은 버튼 한 번으로 내려받습니다.
 
@@ -60,13 +60,13 @@
 
 이 사이트에는 서버가 없습니다. GitHub Pages는 HTML·JavaScript 파일만 내려 주고, 키를 받거나 저장하는 곳이 없습니다.
 
-- **키는 이 브라우저에만 있습니다.** 기본은 탭을 닫으면 지워지는 `sessionStorage`이고, 키 창에서 "이 브라우저에 저장"을 켤 때만 `localStorage`에 남습니다.
+- **키는 이 브라우저에만 있습니다.** 기본은 탭을 닫으면 지워지는 `sessionStorage`이고, 설정 창(왼쪽 톱니 아이콘)에서 "이 브라우저에 저장"을 켤 때만 `localStorage`에 남습니다.
 - **키는 `api.anthropic.com`으로만 전송됩니다.** 페이지의 Content-Security-Policy가 브라우저에서 연결할 수 있는 곳을
   `api.anthropic.com`, `api.openalex.org`, `api.semanticscholar.org`, `www.ebi.ac.uk` 네 곳으로 막습니다(외부 스크립트·CDN도 없음).
 - 키는 실행 기록, 이벤트, 오류 메시지, 내려받은 파일, 조사 파일 어디에도 들어가지 않습니다(테스트로 확인).
 - 권장 사항
   - 평가용으로 **사용 한도(spend limit)를 낮게 건 별도 키**를 만들어 쓰고, 다 쓰면 콘솔에서 키를 삭제하세요.
-  - 공용 컴퓨터에서는 "이 브라우저에 저장"을 켜지 말고, 다 쓰면 키 창에서 **지우기**를 누르세요.
+  - 공용 컴퓨터에서는 "이 브라우저에 저장"을 켜지 말고, 다 쓰면 설정 창에서 **지우기**를 누르세요.
   - GitHub Pages에서는 같은 계정의 다른 사이트(`<아이디>.github.io/<다른 저장소>`)가 같은 출처라서 `localStorage`를 함께 씁니다. 기본값(탭을 닫으면 지워지는 `sessionStorage`)으로 쓰면 다른 사이트가 키를 읽을 수 없습니다.
 - 브라우저에서 API를 직접 부르기 위해 공식 SDK의 `dangerouslyAllowBrowser` 옵션을 씁니다. 이 옵션은 "다른 사람에게 내 키를 넣은 페이지를 배포하지 말라"는 경고이고,
   이 사이트처럼 **각자 자기 키를 넣는 방식(BYOK)** 에서는 키가 그 사람의 브라우저 밖으로 나가지 않습니다.
@@ -105,7 +105,7 @@
 | | 중간고사 Colab 노트북 | 이 웹사이트 |
 |---|---|---|
 | 실행 방법 | Colab에서 셀 실행, 코드 맨 위에 설정 입력 | 주소를 열고 화면에서 입력·선택 |
-| 키 입력 | 노트북 셀 또는 Colab 보안 비밀 | 키 창(브라우저에만 저장) |
+| 키 입력 | 노트북 셀 또는 Colab 보안 비밀 | 설정 창(브라우저에만 저장) |
 | 검색 도구 | OpenAlex, Semantic Scholar, arXiv, Europe PMC, DuckDuckGo | OpenAlex, Semantic Scholar, Europe PMC, **Claude 웹 검색** |
 | 결과물 | Markdown, HTML 보고서, 근거 표 CSV, 실행 기록 JSON(Colab 폴더에 ZIP으로 저장) | PDF, Word, PowerPoint, Markdown, HTML, BibTeX, RIS, CSV, JSON |
 | 새 기능 | — | 주제 다듬기, 계획 검토, 비용 한도, 남은 시간, 이어서 진행, 알림, 보고서 다시 쓰기, 질문하기, 조사 파일, 기록 검색, 데모 |
@@ -136,8 +136,8 @@ python -m http.server 8000
 ```
 index.html                 화면(한 페이지 앱, 해시 라우팅 #/ · #/run/<id>)
 assets/
-  tokens.css app.css result.css   디자인 토큰과 화면 스타일
-  js/main.js api.js store.js ui.js charts.js notify.js   셸, 백엔드 연결, 저장, 공용 UI, 차트, 알림
+  tokens.css app.css home.css result.css   디자인 토큰과 화면 스타일
+  js/main.js api.js store.js ui.js history.js charts.js notify.js   셸(왼쪽 아이콘 줄·설정 창), 백엔드 연결, 저장, 공용 UI, 기록 목록, 차트, 알림
   js/views/                 작성 · 진행 · 결과 · 보고서 다시 쓰기 화면
   js/engine/                조사 엔진(8단계 파이프라인, Claude 호출, 검색 도구, 비용, 저장소, 실행 관리, 데모)
   js/export/                결과물 생성(Markdown, HTML, Word, PowerPoint, BibTeX, RIS, CSV, JSON)

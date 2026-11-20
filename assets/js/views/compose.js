@@ -1,4 +1,5 @@
-// 작성 화면 (#/) — FRONTEND 4절 + WEB_FEATURES F1(처음 사용 안내), F2(주제 다듬기), F4(알림 스위치), F5(비용 한도).
+// 처음 화면 (#/) — FRONTEND 4절 + WEB_FEATURES F1(처음 사용 안내), F2(주제 다듬기), F4(알림 스위치), F5(비용 한도).
+// 배치는 LAYOUT_V2 3절: 가운데 열(안내·제목 → 아래쪽에 기록·프롬프트) + 오른쪽 조사 설정 패널(좁은 화면에서는 시트).
 
 import { api } from '../api.js';
 import { store, getApiKey, saveDraft, savePrefs, takePrefill, getPref } from '../store.js';
@@ -7,6 +8,10 @@ import {
 } from '../ui.js';
 import { navigate, refreshRuns, openKeyDialog } from '../main.js';
 import { composeOnboarding } from '../onboarding.js';
+import { mountHistory } from '../history.js';
+
+const NARROW_QUERY = '(max-width: 1099px)'; // 이 폭 이하에서 조사 설정 패널은 오른쪽 시트가 된다(home.css와 같은 값)
+const promptMaxHeight = () => Math.max(160, Math.round(window.innerHeight * 0.4));
 
 const DEFAULT_MAX_PROMPT = 4000;
 const REFINE_MIN = 10;
@@ -126,6 +131,10 @@ export function mountCompose(container) {
     if (v !== preset) st.overrides.add(key);
   }
 
+  // 조사 설정 패널(조립 단계에서 만든다). 오류 표시가 패널을 열 수 있게 먼저 선언해 둔다.
+  let panel = null;
+  let revealInPanel = () => {};
+
   // ── 오류 표시 칸 ──
   const errSlots = {};
   const errSlot = (key) => {
@@ -136,6 +145,8 @@ export function mountCompose(container) {
     const slot = errSlots[key] || errSlots.run;
     slot.replaceChildren(icon('alert-triangle', 14), h('span', null, str(message)), action || null);
     slot.hidden = false;
+    // 오류 칸이 조사 설정 패널 안에 있으면 패널을 열고(좁은 화면) 그 칸이 보이게 패널 안에서 스크롤한다
+    if (panel && panel.contains(slot)) revealInPanel(slot);
   }
   function clearError(key) {
     const keys = key ? [key] : Object.keys(errSlots);
@@ -145,7 +156,7 @@ export function mountCompose(container) {
   // ───────────────── 1. 프롬프트 ─────────────────
   const promptId = uid('prompt');
   const ta = h('textarea', {
-    id: promptId, class: 'prompt-input', rows: 4, placeholder: PLACEHOLDER, spellcheck: 'false',
+    id: promptId, class: 'prompt-input', rows: 2, placeholder: PLACEHOLDER, spellcheck: 'false',
     'aria-label': '연구 주제', 'aria-describedby': `${promptId}-count`,
   });
   ta.value = st.prompt;
@@ -163,7 +174,7 @@ export function mountCompose(container) {
   ta.addEventListener('input', () => {
     draftDirty = true;
     st.prompt = ta.value;
-    autosize(ta, Math.max(240, Math.round(window.innerHeight * 0.5)));
+    autosize(ta, promptMaxHeight());
     updateCounter();
     updateRefineBtn();
     if (ta.value.trim()) clearError('prompt');
@@ -203,6 +214,14 @@ export function mountCompose(container) {
     refineBtn.title = b ? b.reason : '에이전트가 이해하기 좋게 주제를 세 가지 방향으로 다듬어 제안합니다.';
   }
   function closeRefine() { refinePanel.replaceChildren(); }
+  /** 제안 패널이 아래에 붙은 프롬프트 입력 뒤로 가려지면, 가려진 만큼 화면을 내려 전부 보이게 한다 */
+  function revealRefine() {
+    const box = refinePanel.firstElementChild;
+    const composerEl = container.querySelector('.composer');
+    if (!box || !composerEl) return;
+    const hidden = box.getBoundingClientRect().bottom - composerEl.getBoundingClientRect().top;
+    if (hidden > -8) window.scrollBy({ top: hidden + 8, behavior: reducedMotion() ? 'auto' : 'smooth' });
+  }
   function refineShell(...content) {
     return h('section', { class: 'card refine-panel', 'aria-label': '주제 다듬기 제안' },
       h('div', { class: 'refine-head' },
@@ -253,9 +272,10 @@ export function mountCompose(container) {
     refining = true;
     setBusy(refineBtn, true, '다듬는 중…');
     refinePanel.replaceChildren(refineShell(h('div', { class: 'refine-loading' }, skeleton(3))));
+    revealRefine();
     try {
       const res = await api.refinePrompt({ api_key: getApiKey(), prompt: ta.value.trim(), language: st.language });
-      if (refineBtn.isConnected) renderSuggestions(res);
+      if (refineBtn.isConnected) { renderSuggestions(res); revealRefine(); }
     } catch (err) {
       if (!refineBtn.isConnected) return;
       const keyIssue = ['no_api_key', 'auth'].includes(str(err?.code));
@@ -274,7 +294,7 @@ export function mountCompose(container) {
 
   // ───────────────── 2. 모델 ─────────────────
   const modelName = uid('model');
-  const modelGrid = h('div', { class: 'card-grid grid-4', role: 'radiogroup', 'aria-label': '모델' });
+  const modelGrid = h('div', { class: 'sel-rows', role: 'radiogroup', 'aria-label': '모델' });
   const modelNote = h('div', { class: 'section-note', hidden: true });
 
   function modelAvailability() {
@@ -301,6 +321,9 @@ export function mountCompose(container) {
         modelNote.hidden = false;
       }
     }
+    // 다시 그려도 방향키로 고르던 초점이 사라지지 않게 선택된 칸으로 돌려준다
+    const hadFocus = modelGrid.contains(document.activeElement);
+    // 패널이 좁으므로 세로 라디오 줄: 이름 · 배지 · 가격, 아래 작은 설명
     modelGrid.replaceChildren(...models.map((m) => {
       const available = ok(m.id);
       const selected = st.model === m.id;
@@ -311,38 +334,44 @@ export function mountCompose(container) {
         onChange: () => { st.model = m.id; modelNote.hidden = true; clearError('model'); renderModels(); renderEstimate(); },
       });
       return h('label', {
-        class: ['sel-card', selected ? 'is-selected' : '', available ? '' : 'is-disabled'],
+        class: ['sel-row', selected ? 'is-selected' : '', available ? '' : 'is-disabled'],
         title: str(m.description) || null,
       },
       input,
-      h('span', { class: 'sel-check', 'aria-hidden': 'true' }, icon('check', 12)),
-      h('span', { class: 'sel-head' },
-        h('span', { class: 'sel-title' }, str(m.label, m.id)),
-        str(m.badge) ? h('span', { class: 'badge badge-accent' }, m.badge) : null),
-      h('span', { class: 'sel-desc' }, str(m.tagline)),
-      h('span', { class: 'sel-meta num' },
-        ip !== null && op !== null ? `입력 $${trimNum(ip)} · 출력 $${trimNum(op)}` : '가격 정보 없음'),
-      available ? null : h('span', { class: 'sel-unavail' }, icon('x', 12), '이 키로 사용 불가'));
+      h('span', { class: 'sel-dot', 'aria-hidden': 'true' }),
+      h('span', { class: 'sel-row-main' },
+        h('span', { class: 'sel-row-head' },
+          h('span', { class: 'sel-title' }, str(m.label, m.id)),
+          str(m.badge) ? h('span', { class: 'badge badge-accent' }, m.badge) : null,
+          h('span', { class: 'sel-row-meta num' },
+            ip !== null && op !== null ? `입력 $${trimNum(ip)} · 출력 $${trimNum(op)}` : '가격 정보 없음')),
+        str(m.tagline) ? h('span', { class: 'sel-desc' }, str(m.tagline)) : null,
+        available ? null : h('span', { class: 'sel-unavail' }, icon('x', 12), '이 키로 사용 불가')));
     }));
+    if (hadFocus) modelGrid.querySelector('input:checked')?.focus();
   }
 
   // ───────────────── 3. 깊이 ─────────────────
   const depthName = uid('depth');
-  const depthGrid = h('div', { class: 'card-grid grid-3', role: 'radiogroup', 'aria-label': '조사 깊이' });
+  const depthGrid = h('div', { class: 'sel-rows', role: 'radiogroup', 'aria-label': '조사 깊이' });
   function renderDepths() {
+    const hadFocus = depthGrid.contains(document.activeElement);
     depthGrid.replaceChildren(...depths.map((d) => {
       const selected = st.depth === d.id;
       const mins = arr(obj(d.estimate).minutes);
-      return h('label', { class: ['sel-card', selected ? 'is-selected' : ''] },
+      return h('label', { class: ['sel-row', selected ? 'is-selected' : ''] },
         h('input', {
           type: 'radio', name: depthName, value: d.id, class: 'sr-only', checked: selected,
           onChange: () => { setDepth(d.id); },
         }),
-        h('span', { class: 'sel-check', 'aria-hidden': 'true' }, icon('check', 12)),
-        h('span', { class: 'sel-head' }, h('span', { class: 'sel-title' }, str(d.label, d.id))),
-        h('span', { class: 'sel-desc' }, str(d.description)),
-        mins.length === 2 ? h('span', { class: 'sel-meta' }, icon('clock', 12), h('span', { class: 'num' }, `약 ${mins[0]}~${mins[1]}분`)) : null);
+        h('span', { class: 'sel-dot', 'aria-hidden': 'true' }),
+        h('span', { class: 'sel-row-main' },
+          h('span', { class: 'sel-row-head' },
+            h('span', { class: 'sel-title' }, str(d.label, d.id)),
+            mins.length === 2 ? h('span', { class: 'sel-row-meta' }, icon('clock', 12), h('span', { class: 'num' }, `약 ${mins[0]}~${mins[1]}분`)) : null),
+          str(d.description) ? h('span', { class: 'sel-desc' }, str(d.description)) : null));
     }));
+    if (hadFocus) depthGrid.querySelector('input:checked')?.focus();
   }
   function setDepth(id) {
     st.depth = id;
@@ -551,9 +580,8 @@ export function mountCompose(container) {
       h('label', { class: 'check-row check-inline' }, noCapBox, h('span', { class: 'check-title' }, '한도 없음'))),
     h('p', { class: 'field-hint', id: `${costId}-hint` }, `한도에 닿으면 추가 조사를 멈추고 그때까지 모은 근거로 보고서를 씁니다. ${trimNum(costLo)}~${trimNum(costHi)}달러, ${COST_STEP}달러 단위. 웹 검색 요금(1,000회에 $10)도 포함해 계산합니다.`));
 
-  // 숫자 설정
+  // 숫자 설정: "이름 — 스테퍼" 한 줄씩, 설명은 아래 작은 글씨 한 줄
   const advRows = h('div', { class: 'adv-grid' });
-  const advSummary = h('span', { class: 'adv-summary' });
   function numberField(def) {
     const { key, label, hint, unit } = def;
     const [lo, hi] = bounds(key);
@@ -574,46 +602,49 @@ export function mountCompose(container) {
     const dec = h('button', { type: 'button', class: 'step-btn', 'aria-label': `${label} 줄이기`, disabled: st.adv[key] <= lo, onClick: () => { commit(st.adv[key] - 1); advRows.querySelector(`#${id}`)?.focus(); } }, icon('minus', 14));
     const inc = h('button', { type: 'button', class: 'step-btn', 'aria-label': `${label} 늘리기`, disabled: st.adv[key] >= hi, onClick: () => { commit(st.adv[key] + 1); advRows.querySelector(`#${id}`)?.focus(); } }, icon('plus', 14));
     const custom = st.overrides.has(key);
-    return h('div', { class: 'adv-field' },
-      h('div', { class: 'adv-field-head' },
-        h('label', { class: 'field-label', htmlFor: id }, label),
-        custom ? h('span', { class: 'tag tag-accent' }, '직접 설정') : null,
-        custom ? h('button', {
-          type: 'button', class: 'link-btn', onClick: () => { commit(presetValue(key)); },
-          title: `깊이 프리셋 값(${presetValue(key)})으로 되돌리기`,
-        }, '되돌리기') : null),
-      h('div', { class: 'stepper-input' }, dec, input, inc, h('span', { class: 'field-unit' }, unit)),
+    return h('div', { class: ['adv-field', 'adv-num', custom ? 'is-custom' : ''] },
+      h('div', { class: 'adv-num-row' },
+        h('div', { class: 'adv-field-head' },
+          h('label', { class: 'field-label', htmlFor: id }, label),
+          custom ? h('span', { class: 'tag tag-accent' }, '직접 설정') : null,
+          custom ? h('button', {
+            type: 'button', class: 'link-btn', onClick: () => { commit(presetValue(key)); },
+            title: `깊이 프리셋 값(${presetValue(key)})으로 되돌리기`,
+          }, '되돌리기') : null),
+        h('div', { class: 'stepper-input' }, dec, input, inc, h('span', { class: 'field-unit' }, unit))),
       h('p', { class: 'field-hint', id: `${id}-hint` }, `${hint} · ${lo}~${hi}`));
   }
   function renderAdvanced() {
     const focusedId = document.activeElement && advRows.contains(document.activeElement) ? document.activeElement.id : null;
     advRows.replaceChildren(...ADVANCED.map(numberField));
     if (focusedId) advRows.querySelector(`#${focusedId}`)?.focus();
-    const n = st.overrides.size;
-    advSummary.textContent = n ? `직접 설정 ${n}개` : `'${str(depthObj().label, '선택한 깊이')}' 프리셋 값 사용 중`;
   }
 
-  const advanced = h('details', { class: 'advanced' },
-    h('summary', { class: 'advanced-summary' },
-      icon('sliders', 16), h('span', { class: 'advanced-title' }, '고급 설정'), advSummary, icon('chevron-down', 16, 'advanced-caret')),
-    h('div', { class: 'advanced-body' },
-      h('div', { class: 'adv-inline' },
-        h('div', { class: 'adv-field adv-field-wide' },
-          h('div', { class: 'adv-field-head' }, h('span', { class: 'field-label' }, '검색 시작 연도')),
-          h('div', { class: 'adv-year' }, yearSeg, h('span', { class: 'adv-year-input' }, yearInput, yearUnit)),
-          errSlot('year'),
-          h('p', { class: 'field-hint' }, '에이전트가 결정하면 주제에 맞는 시작 연도와 그 이유를 함께 기록합니다.')),
-        h('div', { class: 'adv-field' },
-          h('div', { class: 'adv-field-head' }, h('span', { class: 'field-label' }, '보고서 언어')),
-          langSeg,
-          h('p', { class: 'field-hint' }, '자동이면 입력한 주제의 언어를 따릅니다.'))),
-      costField,
-      advRows));
-  if (st.overrides.size || st.yearMode !== 'agent' || st.language !== 'auto' || st.costTouched) advanced.open = !!prefill;
+  // 고급 설정: 접지 않고 패널 안에 항상 펼쳐 둔다(LAYOUT_V2 3절)
+  const advancedBody = h('div', { class: 'sp-adv' },
+    h('div', { class: 'adv-field adv-field-wide' },
+      h('div', { class: 'adv-field-head' }, h('span', { class: 'field-label' }, '검색 시작 연도')),
+      h('div', { class: 'adv-year' }, yearSeg, h('span', { class: 'adv-year-input' }, yearInput, yearUnit)),
+      errSlot('year'),
+      h('p', { class: 'field-hint' }, '에이전트가 결정하면 주제에 맞는 시작 연도와 그 이유를 함께 기록합니다.')),
+    h('div', { class: 'adv-field' },
+      h('div', { class: 'adv-field-head' }, h('span', { class: 'field-label' }, '보고서 언어')),
+      langSeg,
+      h('p', { class: 'field-hint' }, '자동이면 입력한 주제의 언어를 따릅니다.')),
+    costField,
+    advRows);
 
-  // ───────────────── 6. 예상치 · 실행 줄 ─────────────────
+  // ───────────────── 6. 예상치 ─────────────────
+  // 자세한 예상치는 패널 아래(.sp-foot), 한 줄 요약은 프롬프트 아래(.composer-est). renderEstimate()가 둘 다 고친다.
   const estMain = h('div', { class: 'estimate-main' });
   const estSub = h('div', { class: 'estimate-sub' });
+  const estLine = h('div', { class: 'composer-est num', 'aria-live': 'polite' });
+  const toggleSum = h('span', { class: 'panel-toggle-sum' });
+  function renderToggleSummary() {
+    const m = modelObj();
+    const model = m ? str(m.label, m.id).replace(/^Claude\s+/, '') : '';
+    toggleSum.textContent = [model, str(depthObj().label)].filter(Boolean).join(' · ');
+  }
   function estimateCost() {
     const est = obj(depthObj().estimate);
     const m = modelObj();
@@ -646,17 +677,16 @@ export function mountCompose(container) {
     if (st.overrides.size) sub.push('고급 설정을 바꾸면 달라질 수 있음');
     if (str(cfg.pricing_as_of)) sub.push(`가격 기준일 ${cfg.pricing_as_of}`);
     estSub.textContent = sub.join(' · ');
+    // 한 줄 요약: "약 $4.45 · 12~24분 · 한도 $7"
+    const line = [`약 ${fmtCost(cost)}`];
+    if (mins.length === 2) line.push(`${mins[0]}~${mins[1]}분`);
+    line.push(st.noCap || cap === null ? '한도 없음' : `한도 $${trimNum(cap)}`);
+    estLine.textContent = line.join(' · ');
+    renderToggleSummary();
   }
 
   const startBtn = h('button', { type: 'button', class: 'btn btn-primary btn-lg btn-start', onClick: () => start() },
     icon('play', 16), h('span', { class: 'btn-label' }, '조사 시작'));
-  const runBar = h('div', { class: 'run-bar' },
-    h('div', { class: 'run-bar-inner' },
-      h('div', { class: 'estimate', 'aria-live': 'polite' }, estMain, estSub),
-      h('div', { class: 'run-bar-actions' },
-        h('span', { class: 'kbd-hint', 'aria-hidden': 'true' }, h('kbd', null, 'Ctrl'), '+', h('kbd', null, 'Enter')),
-        startBtn)),
-    h('div', { class: 'run-bar-error' }, errSlot('run')));
 
   // ───────────────── 조립 ─────────────────
   // 키 확인 실패 안내: 키 상태가 바뀔 때마다 다시 그린다
@@ -668,27 +698,150 @@ export function mountCompose(container) {
       ? [icon('alert-triangle', 14), h('span', null, `API 키 확인 실패: ${str(ks.message, '알 수 없는 오류')}`)]
       : []));
   }
-  const section = (title, aside, ...body) => h('section', { class: 'section' },
-    h('div', { class: 'section-head' }, h('h2', { class: 'section-title' }, title), aside ? h('span', { class: 'section-aside' }, aside) : null),
-    ...body);
+  // 패널 구역: 제목 + 작은 설명 한 줄
+  const spSec = (title, note, ...body) => {
+    const id = uid('sp-sec');
+    return h('section', { class: 'sp-sec', 'aria-labelledby': id },
+      h('div', { class: 'sp-sec-head' },
+        h('h3', { class: 'sp-sec-title', id }, title),
+        note ? h('p', { class: 'sp-sec-note' }, note) : null),
+      ...body);
+  };
 
   const onboarding = composeOnboarding(null);
   cleanups.push(() => onboarding.destroy());
+  const history = mountHistory();
+  cleanups.push(() => history.destroy());
 
-  container.append(h('div', { class: 'page compose' },
-    onboarding.el,
-    h('header', { class: 'page-head' },
-      h('h1', { class: 'page-title' }, '무엇을 조사할까요?'),
-      h('p', { class: 'page-sub' }, '주제를 적으면 에이전트가 하위 질문을 세우고 학술 문헌을 찾아 읽은 뒤, 인용을 검증한 보고서를 씁니다.')),
-    prefill ? h('div', { class: 'note note-info' }, icon('refresh', 16), h('span', null, '이전 조사의 주제와 설정을 불러왔습니다. 고칠 부분을 고친 뒤 시작하세요.')) : null,
-    h('section', { class: 'section section-prompt' }, promptCard, errSlot('prompt'), refinePanel),
-    section('모델', str(cfg.pricing_as_of) ? `100만 토큰당 가격 · ${cfg.pricing_as_of} 기준` : '100만 토큰당 가격',
-      keyNote,
-      modelGrid, modelNote, errSlot('model')),
-    section('조사 깊이', '깊을수록 오래 걸리고 비용이 늘어납니다', depthGrid),
-    section('결과물', '조사가 끝나면 자동으로 만듭니다. 다른 형식은 나중에도 받을 수 있습니다', formatWrap, errSlot('formats')),
-    section('옵션', null, h('div', { class: 'card options-card' }, hitlRow, notifyRow, advanced)),
-    runBar));
+  // ── 조사 설정 패널 (넓은 화면: 오른쪽 열 / 좁은 화면: 오른쪽 시트) ──
+  const panelId = uid('settings');
+  const spTitle = h('h2', { class: 'sp-title', tabindex: '-1' }, '조사 설정');
+  const spClose = h('button', {
+    type: 'button', class: 'btn btn-ghost btn-icon btn-sm sp-close', 'aria-label': '조사 설정 닫기', onClick: () => closePanel(),
+  }, icon('x', 16));
+  const spBody = h('div', { class: 'sp-body' },
+    spSec('모델', str(cfg.pricing_as_of) ? `100만 토큰당 가격 · ${cfg.pricing_as_of} 기준` : '100만 토큰당 가격',
+      keyNote, modelGrid, modelNote, errSlot('model')),
+    spSec('조사 깊이', '깊을수록 오래 걸리고 비용이 늘어납니다', depthGrid),
+    spSec('결과물', '조사가 끝나면 자동으로 만듭니다. 다른 형식은 나중에도 받을 수 있습니다', formatWrap, errSlot('formats')),
+    spSec('옵션', null, h('div', { class: 'sp-options' }, hitlRow, notifyRow)),
+    spSec('고급 설정', null, advancedBody));
+  panel = h('aside', { class: 'settings-panel', id: panelId, 'aria-label': '조사 설정' },
+    h('div', { class: 'sp-head' }, spTitle, spClose),
+    spBody,
+    h('div', { class: 'sp-foot' },
+      h('div', { class: 'sp-foot-label' }, '예상치'),
+      h('div', { class: 'estimate' }, estMain, estSub)));
+  const scrim = h('div', { class: 'sp-scrim', 'aria-hidden': 'true', onClick: () => closePanel() });
+
+  const panelToggle = h('button', {
+    type: 'button', class: 'btn btn-secondary btn-sm panel-toggle', 'aria-expanded': 'false', 'aria-controls': panelId,
+    onClick: () => (panelOpen ? closePanel() : openPanel()),
+  }, icon('sliders', 16), h('span', { class: 'btn-label' }, '조사 설정'), toggleSum);
+
+  // ── 프롬프트 입력(아래쪽에 붙음) ──
+  const composer = h('div', { class: 'composer' },
+    promptCard,
+    errSlot('prompt'),
+    errSlot('run'),
+    h('div', { class: 'composer-foot' },
+      panelToggle,
+      estLine,
+      h('span', { class: 'kbd-hint', 'aria-hidden': 'true' }, h('kbd', null, 'Ctrl'), '+', h('kbd', null, 'Enter')),
+      startBtn));
+
+  const home = h('div', { class: 'home' },
+    h('div', { class: 'home-main' },
+      h('div', { class: 'home-top' },
+        onboarding.el,
+        h('header', { class: 'page-head' },
+          h('h1', { class: 'page-title' }, '무엇을 조사할까요?'),
+          h('p', { class: 'page-sub' }, '주제를 적으면 에이전트가 하위 질문을 세우고 학술 문헌을 찾아 읽은 뒤, 인용을 검증한 보고서를 씁니다.')),
+        prefill ? h('div', { class: 'note note-info home-note' }, icon('refresh', 16), h('span', null, '이전 조사의 주제와 설정을 불러왔습니다. 고칠 부분을 고친 뒤 시작하세요.')) : null),
+      h('div', { class: 'home-bottom' },
+        history.el,
+        refinePanel,
+        composer)),
+    scrim,
+    panel);
+  container.append(home);
+
+  // ── 좁은 화면(≤1099px): 패널 시트 열고 닫기 (LAYOUT_V2 3.1) ──
+  const mq = window.matchMedia(NARROW_QUERY);
+  const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let panelOpen = false;
+  /** 시트가 열려 있는 동안 가림막 뒤(가운데 열·왼쪽 레일·위쪽 띠)는 초점과 보조 기술에서 빠진다 */
+  function setBackgroundInert(on) {
+    const homeMain = home.querySelector('.home-main');
+    if (homeMain) homeMain.inert = on;
+    for (const sel of ['.rail', '.banners']) document.querySelector(sel)?.toggleAttribute('inert', on);
+  }
+  function setPanel(open) {
+    panelOpen = open;
+    home.classList.toggle('is-panel-open', open);
+    panelToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    const sheet = open && mq.matches;
+    document.body.classList.toggle('has-sheet', sheet);
+    setBackgroundInert(sheet);
+  }
+  function openPanel({ focus = true } = {}) {
+    if (!mq.matches) return; // 넓은 화면에서는 늘 보인다
+    setPanel(true);
+    if (focus) spTitle.focus({ preventScroll: true });
+  }
+  function closePanel() {
+    if (!panelOpen) return;
+    setPanel(false);
+    if (mq.matches) panelToggle.focus();
+  }
+  revealInPanel = (el) => {
+    if (mq.matches && !panelOpen) openPanel({ focus: false });
+    requestAnimationFrame(() => {
+      if (!el.isConnected) return;
+      // 시트가 막 열렸고 초점이 아직 바깥(시작 버튼 등)에 있으면 패널 제목으로 옮긴다
+      if (mq.matches && panelOpen && !panel.contains(document.activeElement)) spTitle.focus({ preventScroll: true });
+      const target = el.closest('.adv-field') || el.closest('.sp-sec') || el;
+      const t = target.getBoundingClientRect();
+      const e = el.getBoundingClientRect();
+      const b = spBody.getBoundingClientRect();
+      if (t.top < b.top || e.bottom > b.bottom) {
+        spBody.scrollTo({ top: Math.max(0, spBody.scrollTop + (t.top - b.top) - 12), behavior: reducedMotion() ? 'auto' : 'smooth' });
+      }
+    });
+  };
+  const onMq = () => {
+    if (!mq.matches) setPanel(false); // 넓어지면 시트 상태를 풀고 오른쪽 열로 돌아간다
+    else { document.body.classList.toggle('has-sheet', panelOpen); setBackgroundInert(panelOpen); }
+  };
+  if (mq.addEventListener) mq.addEventListener('change', onMq); else mq.addListener(onMq);
+  cleanups.push(() => {
+    if (mq.removeEventListener) mq.removeEventListener('change', onMq); else mq.removeListener(onMq);
+    document.body.classList.remove('has-sheet');
+    setBackgroundInert(false);
+  });
+
+  // 프롬프트 칸 높이(토스트 위치)와 위쪽 띠 높이(처음 화면 최소 높이)를 CSS 변수로 알려 준다
+  // 아래에 붙은 프롬프트 칸 뒤로 초점이 숨지 않도록, 그 높이만큼을 문서 스크롤의 아래 여백으로 잡는다
+  // (키보드로 기록 카드나 다듬기 제안에 초점이 가면 브라우저가 프롬프트 칸 위로 올려 보여 준다).
+  if (typeof ResizeObserver === 'function') {
+    const banners = document.querySelector('.banners');
+    const measure = () => {
+      if (!composer.isConnected) return;
+      const ch = Math.round(composer.offsetHeight);
+      document.body.style.setProperty('--composer-h', `${ch}px`);
+      document.documentElement.style.scrollPaddingBottom = `${ch + 24}px`;
+      home.style.setProperty('--banner-h', `${banners && banners.isConnected ? Math.round(banners.offsetHeight) : 0}px`);
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(composer);
+    if (banners) ro.observe(banners);
+    measure(); // 첫 화면부터 맞는 값으로(관찰 콜백은 다음 프레임에 온다)
+    cleanups.push(() => {
+      ro.disconnect();
+      document.body.style.removeProperty('--composer-h');
+      document.documentElement.style.removeProperty('scroll-padding-bottom');
+    });
+  }
 
   renderKeyNote();
   renderModels();
@@ -701,7 +854,7 @@ export function mountCompose(container) {
   updateCounter();
   updateRefineBtn();
   requestAnimationFrame(() => {
-    autosize(ta, Math.max(240, Math.round(window.innerHeight * 0.5)));
+    autosize(ta, promptMaxHeight());
     if (!st.prompt) ta.focus({ preventScroll: true });
   });
 
@@ -710,8 +863,13 @@ export function mountCompose(container) {
     if (s.keyStatus !== p.keyStatus) { renderKeyNote(); renderModels(); renderEstimate(); updateRefineBtn(); }
   }));
 
-  // Ctrl+Enter로 시작
+  // Ctrl+Enter로 시작 · Esc로 (좁은 화면의) 조사 설정 시트 닫기
   const onKey = (e) => {
+    if (e.key === 'Escape' && panelOpen && mq.matches && !e.defaultPrevented && !document.querySelector('.modal-root')) {
+      e.preventDefault();
+      closePanel();
+      return;
+    }
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !document.querySelector('.modal-root')) {
       e.preventDefault();
       start();
@@ -719,7 +877,7 @@ export function mountCompose(container) {
   };
   document.addEventListener('keydown', onKey);
   cleanups.push(() => document.removeEventListener('keydown', onKey));
-  // 화면 아래 고정 실행 줄 위로 토스트를 올린다
+  // 아래에 붙은 프롬프트 입력 위로 토스트를 올린다(토스트 위치 규칙 재사용)
   document.body.classList.add('has-runbar');
   cleanups.push(() => document.body.classList.remove('has-runbar'));
 
@@ -752,7 +910,6 @@ export function mountCompose(container) {
     if (st.yearMode === 'custom') {
       const y = Number(st.year);
       if (!st.year || !Number.isFinite(y) || y < yLo || y > yHi) {
-        advanced.open = true;
         showError('year', `시작 연도는 ${yLo}~${yHi} 사이로 적어 주세요.`);
         yearInput.focus();
         return false;
@@ -786,7 +943,7 @@ export function mountCompose(container) {
     }
     if (code.includes('model')) { showError('model', msg); return; }
     if (code.includes('format')) { showError('formats', msg); return; }
-    if (code.includes('year')) { advanced.open = true; showError('year', msg); return; }
+    if (code.includes('year')) { showError('year', msg); return; }
     if (code === 'too_many_runs') {
       showError('run', msg, button('기록 보기', { kind: 'secondary', size: 'sm', onClick: () => document.querySelector('.hist-item')?.focus() }));
       return;

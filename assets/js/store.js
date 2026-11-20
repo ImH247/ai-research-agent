@@ -84,6 +84,7 @@ export const store = createStore({
   serverDown: false,     // (예전 서버 연결 실패 띠 — 브라우저 버전에서는 쓰지 않음)
   onboardingDismissed: loadOnboardingDismissed(), // 처음 사용 안내 "다시 보지 않기"
   historyQuery: '',      // 기록 검색어
+  historyExpanded: false, // 처음 화면 기록 "모두 보기" 펼침(메모리만)
 });
 
 // ───────────────────────── API 키 ─────────────────────────
