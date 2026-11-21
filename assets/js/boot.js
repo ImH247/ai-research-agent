@@ -37,6 +37,26 @@
   if (!skin) skin = 'lavender';
   root.setAttribute('data-skin', skin);
 
+  // 라벤더 디자인의 글꼴 조각을 미리 받는다(스크립트·스타일과 나란히). 화면을 그린 뒤에야 받기 시작하면
+  // 처음 방문할 때 기본 글꼴로 잠깐 보였다가 바뀐다. 아래 16개는 처음·진행·결과 화면이 실제로 쓰는 조각이고,
+  // 주소는 assets/fonts/fonts.css의 url()과 같아야 한다(다르면 두 번 받는다). classic은 이 글꼴을 쓰지 않으므로 받지 않는다.
+  if (skin === 'lavender') {
+    try {
+      var fontFiles = ['outfit/outfit-latin', 'pretendard/pv-91', 'pretendard/pv-90', 'pretendard/pv-89', 'pretendard/pv-88',
+        'pretendard/pv-87', 'pretendard/pv-86', 'pretendard/pv-85', 'pretendard/pv-84', 'pretendard/pv-83', 'pretendard/pv-82',
+        'pretendard/pv-81', 'pretendard/pv-80', 'pretendard/pv-79', 'pretendard/pv-76', 'pretendard/pv-2'];
+      for (var i = 0; i < fontFiles.length; i++) {
+        var pre = document.createElement('link');
+        pre.rel = 'preload';
+        pre.as = 'font';
+        pre.type = 'font/woff2';
+        pre.crossOrigin = 'anonymous'; // 글꼴은 늘 CORS 방식으로 받는다. 이 값이 없으면 미리 받은 것을 쓰지 못하고 다시 받는다.
+        pre.href = './assets/fonts/' + fontFiles[i] + '.woff2';
+        document.head.appendChild(pre);
+      }
+    } catch (e) { /* 미리 받기 실패 — 글꼴은 평소대로 필요할 때 받는다 */ }
+  }
+
   // 파비콘: 라벤더면 같은 모양의 보라(#6A3DE8) 아이콘으로 바꾼다. 두 주소를 link에 남겨 두면 main.js가 설정 창에서 바꿀 때 쓴다.
   try {
     var link = document.querySelector('link[rel="icon"]');

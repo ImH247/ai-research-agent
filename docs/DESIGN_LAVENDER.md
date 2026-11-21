@@ -90,6 +90,7 @@
 - **본문·UI: Pretendard Variable** (OFL-1.1, npm `pretendard` 1.3.9의 `dist/web/variable/woff2-dynamic-subset/` 92개 조각 + unicode-range).
 - **제목·숫자·워드마크의 영문/숫자: Outfit Variable** (OFL-1.1, npm `@fontsource-variable/outfit` 5.3.0의 latin 조각 1개).
 - 파일은 `assets/fonts/pretendard/pv-N.woff2`, `assets/fonts/outfit/outfit-latin.woff2`, 글꼴 선언은 `assets/fonts/fonts.css`. `font-display: swap`. 처음 화면이 실제로 내려받는 것은 필요한 조각 16개(약 440KB)뿐이다.
+- 라벤더일 때 `boot.js`가 이 16개를 `<link rel="preload" as="font" crossorigin>`로 **미리 받는다**(스크립트·스타일과 나란히). 화면을 그린 뒤에야 받기 시작하면 처음 방문할 때 기본 글꼴로 잠깐 보였다가 바뀐다. 처음·진행·결과 화면이 모두 같은 16개를 쓴다. 화면 글자가 크게 바뀌어 쓰는 조각이 달라지면 `boot.js`의 목록도 고친다(주소가 `fonts.css`·실제 파일과 맞는지는 `tests/boot.test.js`가 확인한다). classic에서는 받지 않는다.
 - **글꼴 이름은 `"RA Pretendard"`, `"RA Outfit"`** 로 선언한다. `classic` 스킨의 `--font-sans`가 "Pretendard Variable"로 시작하므로, 같은 이름으로 선언하면 보존해야 할 이전 디자인의 글꼴이 바뀐다.
 - 스킨 토큰: `--font-sans: "RA Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;`
   `--font-display: "RA Outfit", "RA Pretendard", -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;` (한글은 Outfit에 없으므로 자동으로 Pretendard가 받는다)
@@ -105,7 +106,7 @@
 - `boot.js`: 첫 화면을 그리기 전에 `document.documentElement.dataset.skin`을 정한다. 순서: URL `?skin=classic|lavender` → `localStorage['ra.skin']` → 기본 `lavender`.
   URL 값은 저장한 뒤 **주소에서 지운다**(`history.replaceState`, 다른 값과 `#` 뒤는 그대로). 남겨 두면 설정에서 디자인을 바꾼 뒤 새로고침할 때 주소의 값이 다시 덮어쓴다. 저장하지 못한 경우에는 지우지 않는다.
   `?skin=`은 주소의 `#` **앞**에 있어야 읽힌다(예: `…/ai-research-agent/?skin=classic`). `#` 뒤에 붙이면 경로의 일부가 되어 읽히지 않는다.
-  라벤더일 때 파비콘도 보라(`#6A3DE8`)로 바꾼다(`link[rel=icon]`의 data URL 교체, 두 주소를 `data-href-classic`·`data-href-lavender`로 남겨 둔다).
+  라벤더일 때 파비콘도 보라(`#6A3DE8`)로 바꾸고(`link[rel=icon]`의 data URL 교체, 두 주소를 `data-href-classic`·`data-href-lavender`로 남겨 둔다), 글꼴 조각 16개를 미리 받는다(2절).
 - `store.js`: `loadSkin()`(이미 적용된 `<html data-skin>` → `localStorage` → 기본), `saveSkin(skin)`, 상태 키 `skin`. 값은 `'lavender' | 'classic'`만.
 - 설정 창(`openKeyDialog`): "화면 테마" 구역 아래에 **"디자인"** 구역. 2칸 세그먼트 `라벤더` · `클래식`(aria-pressed), 아래 작은 글씨 "클래식은 이전 디자인입니다." 고르면 바로 적용·저장한다(새로고침 없음).
   세그먼트의 버튼은 한 번만 만들고 고를 때는 `aria-pressed`만 바꾼다(테마 세그먼트도 같다). 버튼을 다시 만들면 방금 누른 버튼이 사라져 키보드 초점이 창 밖으로 빠진다.
@@ -176,4 +177,4 @@
 - 라벤더: 밝은/어두운 화면 모두에서 글자 대비 AA, 초점 표시가 보인다(사이드바 안은 라벤더 고리), 375px에서 가로 스크롤 없음, 움직임 줄이기 설정 존중(app.css의 공용 규칙이 애니메이션·전환을 끈다).
 - 스킨 규칙을 더 강한 선택자로 다시 쓸 때는 공용 규칙의 상태(호버·누름·비활성·진행 중·강조 고리)를 덮지 않는지 확인한다.
 - 글꼴 파일이 200으로 오고(`assets/fonts/…`, GitHub Pages는 대소문자를 구분한다), 글꼴이 늦게 와도 글자가 먼저 보인다(`swap`).
-- `node --test tests/` 통과, 인라인 스크립트 없음.
+- `node --test tests/` 통과(`tests/boot.test.js`: 디자인을 고르는 순서, 주소 정리, 글꼴 미리 받기), 인라인 스크립트 없음.
