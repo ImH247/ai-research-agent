@@ -46,6 +46,28 @@ const FORMAT_ICON = {
 };
 const FORMAT_ORDER = ['md', 'html', 'pdf', 'docx', 'pptx', 'bib', 'ris', 'csv', 'json'];
 
+// 발표 자료 구성안의 출처(백엔드 result.slides_source): 지금 PowerPoint를 받으면 어떤 구성안이 쓰이는지
+const SLIDES_SOURCE_LABEL = { llm: 'AI가 구성', sample: '샘플에 들어 있는 구성', rules: '규칙으로 구성' };
+const SLIDES_SOURCE_HINT = {
+  llm: 'API 키로 AI가 발표용으로 따로 짠 구성안입니다.',
+  sample: '샘플에 미리 넣어 둔 발표용 구성안입니다. 실제 조사에서 AI가 받는 것과 같은 지침으로 준비했고, 숫자와 문헌은 모두 보고서에 있는 것입니다.',
+  rules: 'AI 없이 보고서의 완결된 문장만 골라 규칙으로 만든 구성안입니다.',
+};
+const RULES_SLIDES_NOTE = "규칙으로 구성한 발표 자료입니다. API 키가 있으면 '다른 형식 → 발표 자료 다시 구성'으로 다듬을 수 있습니다.";
+// 발표 구성안 예상 비용: 입력 = 지시문·문헌 목록 약 4천 토큰 + 보고서(대략 2글자에 1토큰), 출력 = 구성안과 발표자 노트 약 1만 토큰
+const DECK_BASE_INPUT = 4000;
+const DECK_OUTPUT = 10000;
+
+/** 발표 자료 다시 구성의 대략 비용(USD): 모델 가격 × (입력 + 출력 토큰). 가격을 모르면 null */
+export function estimateDeckCost(modelInfo, reportChars) {
+  const m = obj(modelInfo);
+  const pin = num(m.input_per_mtok);
+  const pout = num(m.output_per_mtok);
+  if (pin === null || pout === null) return null;
+  const input = DECK_BASE_INPUT + Math.ceil(Math.max(0, num(reportChars) || 0) / 2);
+  return (input * pin + DECK_OUTPUT * pout) / 1e6;
+}
+
 // 결과 방향: 대상마다 색을 고정한다(FRONTEND 9.5). 해당 없음·미분류는 중립 조각 하나로 합친다.
 const DIRECTION_SERIES = [
   { key: 'positive', label: '긍정', color: 'var(--chart-1)' },
@@ -472,6 +494,9 @@ export function mountResult(container, { runId, tab, status, fromLive } = {}) {
       if (fmt === 'pdf') {
         // 팝업이 막혀 HTML로 저장했으면 download()가 이미 안내했다
         if (!/\.html?$/i.test(name)) toast("인쇄 창을 열었습니다. 대상에서 'PDF로 저장'을 선택하세요.", 'info', { duration: 6000 });
+      } else if (fmt === 'pptx' && slidesSource() === 'rules') {
+        // 규칙 구성안이면 AI로 다시 구성할 수 있다는 것을 한 줄 덧붙인다(읽을 시간을 조금 더 준다)
+        toast(`${name ? `내려받았습니다: ${name}` : '내려받았습니다.'} ${RULES_SLIDES_NOTE}`, 'success', { duration: 8000 });
       } else toast(name ? `내려받았습니다: ${name}` : '내려받았습니다.', 'success');
     } catch (err) {
       if (st.disposed) return;
@@ -480,6 +505,133 @@ export function mountResult(container, { runId, tab, status, fromLive } = {}) {
       inflight.delete(fmt);
       if (fromMenu) { menuBusy = Math.max(0, menuBusy - 1); if (menuBusy === 0) setBusy(btn, false); } else setBusy(btn, false);
     }
+  }
+
+  // ── 발표 자료 다시 구성 (AI) ──
+  // 지금 구성안의 출처. 결과를 받을 때 한 번 알고, 다시 구성하면 'llm'으로 바꾼다
+  const slidesSource = () => {
+    const s = str(st.raw?.slides_source);
+    return SLIDES_SOURCE_LABEL[s] ? s : 'rules';
+  };
+
+  /** 작은 창: 지금 구성안의 출처 · 하는 일 · 예상 비용 → [구성하고 내려받기]. 보고서 다시 쓰기 창(rewrite.js)과 같은 틀 */
+  function openSlidesDialog() {
+    if (!getApiKey()) {
+      // 키가 없으면 할 수 있는 일이 없으므로 키 창부터 연다
+      toast('발표 자료를 AI로 다시 구성하려면 API 키가 필요합니다.', 'info');
+      openKeyDialog();
+      return null;
+    }
+    const R = st.R;
+    const m = R.meta;
+    const models = arr(cfg().models).filter((x) => x && str(x.id));
+    const origModel = str(m.model) || str(obj(m.config).model);
+    const defaultModel = models.find((x) => x.id === origModel) ? origModel : str(models.find((x) => x.default)?.id) || str(models[0]?.id) || origModel;
+    const reportChars = str(R.report_markdown).length;
+    const source = slidesSource();
+
+    const modelId = uid('sl-model');
+    const modelSel = h('select', { id: modelId, class: 'input rw-select' }, models.map((x) => h('option', {
+      value: x.id, selected: x.id === defaultModel ? true : null,
+    }, `${str(x.label, x.id)}${x.id === origModel ? ' (원래 모델)' : ''}`)));
+    if (!models.length && origModel) modelSel.append(h('option', { value: origModel, selected: true }, origModel));
+    modelSel.value = defaultModel;
+
+    const costEl = h('b', { class: 'num' });
+    const renderCost = () => {
+      const usd = estimateDeckCost(models.find((x) => x.id === modelSel.value), reportChars);
+      costEl.textContent = usd === null ? '알 수 없음' : `약 ${fmtCost(usd)}`;
+    };
+    modelSel.addEventListener('change', renderCost);
+
+    const keyNote = h('div', { class: 'note rw-key', hidden: true });
+    const renderKey = () => {
+      const has = !!getApiKey();
+      keyNote.hidden = has;
+      if (!has) {
+        keyNote.replaceChildren(icon('key', 16), h('span', null, '발표 자료를 다시 구성하려면 API 키가 필요합니다. ',
+          h('button', { type: 'button', class: 'link-btn', onClick: () => openKeyDialog() }, '키 입력')));
+      }
+    };
+    const errBox = h('p', { class: 'field-error', role: 'alert', hidden: true });
+
+    const body = h('div', { class: 'rw-form' },
+      h('div', { class: 'note' }, icon('presentation', 16),
+        h('span', null, '지금 발표 자료: ', h('b', null, SLIDES_SOURCE_LABEL[source]), ` — ${SLIDES_SOURCE_HINT[source]}`)),
+      h('p', { class: 'modal-text' }, 'AI가 보고서를 읽고 발표의 흐름(질문 → 결론 → 핵심 메시지 → 한계)에 맞춘 구성안을 한 번의 호출로 새로 짭니다. ' +
+        '슬라이드마다 주장 하나와 발표자 노트를 넣고, 보고서에 있는 숫자와 문헌만 씁니다. 보고서와 근거는 바뀌지 않습니다.'),
+      h('div', { class: 'rw-field' }, h('label', { class: 'field-label', htmlFor: modelId }, '모델'), modelSel),
+      h('div', { class: 'rw-cost' }, h('span', null, '예상 비용 '), costEl,
+        h('span', { class: 'field-hint' }, ' · 대략치(보고서 길이 + 구성안 출력 약 1만 토큰 기준, 본인 키로 과금)')),
+      keyNote,
+      errBox);
+
+    renderCost();
+    renderKey();
+    const unsub = store.subscribe((s, p) => { if (s.keyStatus !== p.keyStatus) renderKey(); });
+
+    let working = false;
+    let dismissed = false;      // 요청이 끝나기 전에 창을 닫았는가(닫아도 요청은 계속된다 → 결과를 알림으로 알려 준다)
+    return modal({
+      title: '발표 자료 다시 구성',
+      body,
+      size: '',
+      onClose: () => { dismissed = true; unsub(); },
+      actions: [
+        { label: '취소', kind: 'secondary' },
+        {
+          label: '구성하고 내려받기', kind: 'primary', icon: 'presentation',
+          onClick: async ({ close, button: btn }) => {
+            if (working || inflight.has('pptx')) return;
+            const key = getApiKey();
+            if (!key) {
+              renderKey();
+              openKeyDialog();
+              return;
+            }
+            working = true;
+            inflight.add('pptx');            // 그동안 메뉴 · 버튼의 PowerPoint 내려받기를 막는다
+            errBox.hidden = true;
+            setBusy(btn, true, '구성하는 중…');
+            try {
+              await api.slides(runId, { api_key: key, model: modelSel.value || undefined });
+              if (st.raw) st.raw.slides_source = 'llm';
+              if (st.R) st.R.slides_source = 'llm';
+              if (dismissed) {
+                // 창을 닫은 뒤에 끝났다: 파일을 불쑥 내려받지 않고, 구성안이 바뀌었다는 것만 알린다
+                if (!st.disposed) toast("발표 자료를 다시 구성했습니다. '발표 슬라이드'를 내려받으면 새 구성이 쓰입니다.", 'success', { duration: 6000 });
+                return;
+              }
+              let name = '';
+              try {
+                name = str(await downloadFile(runId, 'pptx'));
+              } catch (err) {
+                // 구성안은 이미 바뀌었다: 창을 닫고 버튼으로 다시 받게 한다
+                close();
+                if (!st.disposed) toast(`발표 자료를 다시 구성했지만 파일을 내려받지 못했습니다. ${str(err?.message)}`.trim(), 'error', { duration: 6000 });
+                return;
+              }
+              close();
+              if (!st.disposed) toast(name ? `발표 자료를 다시 구성해 내려받았습니다: ${name}` : '발표 자료를 다시 구성해 내려받았습니다.', 'success');
+            } catch (err) {
+              const message = str(err?.message, '발표 자료를 구성하지 못했습니다.');
+              if (dismissed) {
+                // 창이 닫혀 있으면 창 안의 오류 칸이 보이지 않는다 → 알림으로 알린다
+                if (!st.disposed) toast(message, 'error', { duration: 6000 });
+              } else {
+                setBusy(btn, false);
+                errBox.replaceChildren(icon('alert-triangle', 14), h('span', null, message));
+                errBox.hidden = false;
+              }
+              if (err?.code === 'no_api_key' || err?.code === 'auth') openKeyDialog();
+            } finally {
+              working = false;
+              inflight.delete('pptx');
+            }
+          },
+        },
+      ],
+    });
   }
 
   function buildHeader(topic) {
@@ -559,6 +711,13 @@ export function mountResult(container, { runId, tab, status, fromLive } = {}) {
       });
       items.push({ separator: true });
       items.push({ label: '전체 묶음 (ZIP)', icon: 'download', note: '지금까지 만든 결과물 + result.json', disabled: inflight.has('zip'), onClick: () => doDownload('zip', moreBtn, { fromMenu: true }) });
+      // 맨 아래: 발표 자료를 AI로 다시 구성(키 필요). 지금 구성안의 출처를 함께 보여 준다
+      items.push({ separator: true });
+      items.push({
+        label: '발표 자료 다시 구성 (AI)…', icon: 'presentation',
+        note: inflight.has('pptx') ? '준비 중…' : `지금: ${SLIDES_SOURCE_LABEL[slidesSource()]} · API 키 필요`,
+        disabled: inflight.has('pptx'), onClick: () => openSlidesDialog(),
+      });
       menu(moreBtn, items, { placement: 'bottom-start' });
     });
 

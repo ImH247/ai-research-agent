@@ -11,7 +11,9 @@ import { citedIds, includedSources, referenceSources, shortCite, metaInfo } from
 import { buildMarkdown } from '../assets/js/export/markdown.js';
 import { buildHtml, renderFragment, renderMarkdown, linkCites } from '../assets/js/export/html.js';
 import { buildBibtex, buildCsv, buildRis, parseCsv, CSV_COLUMNS } from '../assets/js/export/refs.js';
-import { OUTLINE_SCHEMA, fallbackOutline, makeOutline, normalizeOutline, LIMITS } from '../assets/js/export/slides.js';
+import { DECK_LIMITS, DECK_SCHEMA, STRENGTHS, clip, emLen, fallbackDeck, figureOf, isDeck, makeDeck, normalizeDeck, numbered,
+  sections, subqLabels } from '../assets/js/export/slides.js';
+import { FakeLLM } from './fakes.js';
 import { FORMATS, exportBundle, exportFile, filenameFor, slugify } from '../assets/js/export/index.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -19,8 +21,63 @@ const SAMPLE_IDS = ['sample_genai_graduate_research', 'sample_roll_sensor_fabric
 const samples = Object.fromEntries(SAMPLE_IDS.map((id) => [id,
   JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'samples', id, 'result.json'), 'utf8'))]));
 const TEXT_FORMATS = ['md', 'html', 'pdf', 'bib', 'ris', 'csv', 'json'];
-const OUTLINE_KEYS = ['title', 'subtitle', 'summary', 'findings', 'agreements', 'conflicts', 'gaps', 'future_studies',
-  'must_read', 'limitations'];
+// 발표 구성안(v2)의 키 순서 (docs/SLIDES_V2.md 1절)
+const DECK_KEYS = ['version', 'source', 'title', 'subtitle', 'question', 'context', 'answer', 'answer_caveat', 'messages',
+  'agree', 'conflict', 'conflict_why', 'gaps', 'next_studies', 'cautions', 'takeaways', 'closing', 'must_read',
+  'subq_labels', 'notes'];
+const NOTE_KEYS = ['opening', 'answer', 'landscape', 'strength', 'tension', 'gaps', 'next', 'cautions', 'closing'];
+
+// 구성안의 모양과 모든 길이·개수 제한, 문헌 id가 result에 있는지 확인한다
+function assertDeck(d, r) {
+  const L = DECK_LIMITS;
+  assert.deepEqual(Object.keys(d), DECK_KEYS);
+  assert.equal(d.version, 2);
+  assert.ok(isDeck(d));
+  const known = new Set((r?.sources || []).filter((s) => s && s.sid).map((s) => s.sid));
+  const short = (s, n, what) => {
+    assert.equal(typeof s, 'string', what);
+    assert.ok(emLen(s) <= n, `${what} (${emLen(s)} > ${n}): ${s}`);
+    for (const id of (s.match(/\[S\d+(?:\s*,\s*S\d+)*\]/g) || []).join(' ').match(/S\d+/g) || []) {
+      assert.ok(known.has(id), `${what}: 없는 문헌 ${id}`);
+    }
+  };
+  const many = (xs, k, n, what) => {
+    assert.ok(Array.isArray(xs) && xs.length <= k, what);
+    xs.forEach((x, i) => short(x, n, `${what}[${i}]`));
+  };
+  for (const k of ['title', 'subtitle', 'question', 'answer', 'answer_caveat', 'conflict_why', 'closing']) short(d[k], L[k], k);
+  many(d.context, L.context.max, L.context.len, 'context');
+  many(d.agree, L.agree.max, L.agree.len, 'agree');
+  many(d.conflict, L.conflict.max, L.conflict.len, 'conflict');
+  many(d.cautions, L.cautions.max, L.cautions.len, 'cautions');
+  many(d.takeaways, L.takeaways.max, L.takeaways.len, 'takeaways');
+  assert.ok(d.messages.length <= L.messages.max);
+  for (const m of d.messages) {
+    assert.deepEqual(Object.keys(m), ['headline', 'points', 'takeaway', 'strength', 'subq_ids', 'notes']);
+    short(m.headline, L.headline, 'headline'); short(m.takeaway, L.takeaway, 'takeaway');
+    short(m.notes, L.message_notes, 'message.notes');
+    assert.ok(STRENGTHS.includes(m.strength), m.strength);
+    assert.ok(m.points.length <= L.points.max);
+    for (const p of m.points) {
+      assert.deepEqual(Object.keys(p), ['figure', 'text', 'detail', 'sids']);
+      short(p.figure, L.figure, 'figure'); short(p.text, L.text, 'text'); short(p.detail, L.detail, 'detail');
+      assert.ok(p.sids.length <= L.sids);
+      for (const sid of p.sids) assert.ok(known.has(sid), sid);
+    }
+  }
+  assert.ok(d.gaps.length <= L.gaps.max);
+  for (const g of d.gaps) { short(g.gap, L.gaps.gap, 'gap'); short(g.why, L.gaps.why, 'gap.why'); }
+  assert.ok(d.next_studies.length <= L.next_studies.max);
+  for (const st of d.next_studies) {
+    assert.deepEqual(Object.keys(st), ['title', 'design', 'sample', 'payoff']);
+    for (const k of Object.keys(st)) short(st[k], L.next_studies[k], `next_studies.${k}`);
+  }
+  assert.ok(d.must_read.length <= L.must_read.max);
+  for (const m of d.must_read) { assert.ok(known.has(m.sid), m.sid); short(m.why, L.must_read.why, 'must_read.why'); }
+  for (const x of d.subq_labels) short(x.label, L.subq_label, 'subq_label');
+  assert.deepEqual(Object.keys(d.notes), NOTE_KEYS);
+  for (const k of NOTE_KEYS) short(d.notes[k], L.notes, `notes.${k}`);
+}
 
 // 코드 블록 밖의 ##/### 제목
 function mdHeadings(md) {
@@ -156,22 +213,42 @@ for (const id of SAMPLE_IDS) {
       assert.deepEqual(nums, [...nums].sort((a, b) => a - b));
     });
 
-    test('규칙 기반 개요: 모양과 제한', () => {
-      const o = fallbackOutline(r);
-      assert.deepEqual(Object.keys(o), OUTLINE_KEYS);
-      assert.ok(o.findings.length > 0 && o.findings.length <= LIMITS.findings);
-      assert.ok(o.summary.length > 0 && o.summary.length <= 5);
-      for (const s of o.summary) assert.ok(s.length <= LIMITS.summary[1] + 2, s);
-      for (const f of o.findings) {
-        assert.ok(['strong', 'moderate', 'weak', 'insufficient'].includes(f.strength));
-        assert.ok(f.bullets.length <= 4);
-        for (const b of f.bullets) assert.ok(b.length <= LIMITS.bullets[1] + 2, b);
+    test('규칙 구성안: 모양 · 제한 · 문헌 id · 완결된 문장', () => {
+      const d = fallbackDeck(r);
+      assertDeck(d, r);
+      assert.equal(d.source, 'rules');
+      assert.equal(d.title, r.topic);
+      assert.equal(d.subtitle, `채택 문헌 ${r.meta.counts.included}건으로 본 연구 브리프`);
+      assert.ok(d.answer.length > 0);
+      assert.ok(d.messages.length >= 3 && d.messages.length <= 5, String(d.messages.length));
+      for (const m of d.messages) {
+        assert.ok(m.headline.length > 0);
+        assert.ok(!m.headline.endsWith('…'), `제목이 문장 중간에서 잘림: ${m.headline}`);
+        assert.ok(m.points.length >= 1 && m.points.length <= 3, m.headline);
+        for (const p of m.points) {
+          assert.ok(p.text && !p.text.endsWith('…'), `카드가 문장 중간에서 잘림: ${p.text}`);
+          // 큰 숫자는 그 카드의 글에 실제로 있는 값이다
+          if (p.figure) assert.ok(p.text.includes(p.figure), `${p.figure} / ${p.text}`);
+        }
+        for (const q of m.subq_ids) assert.ok(r.plan.sub_questions.some((x) => x.id === q), q);
       }
-      const sids = new Set(r.sources.map((s) => s.sid));
-      for (const m of o.must_read) assert.ok(sids.has(m.sid));
-      assert.ok(o.must_read.length > 0 && o.must_read.length <= 5);
-      assert.equal(o.title, r.topic);
-      assert.deepEqual(normalizeOutline(o, r), o);   // 이미 정규화된 개요는 그대로
+      assert.ok(d.must_read.length > 0);
+      assert.equal(d.takeaways.length, 3);
+      assert.ok(d.gaps.length > 0 && d.next_studies.length > 0 && d.cautions.length > 0);
+      assert.deepEqual(d.subq_labels.map((x) => x.id), r.plan.sub_questions.map((q) => q.id));
+      for (const x of d.subq_labels) assert.ok(x.label && !x.label.endsWith('…'), x.label);
+      assert.deepEqual(d.subq_labels, subqLabels(r));
+      assert.deepEqual(normalizeDeck(d, r), d);   // 이미 정규화된 구성안은 그대로(멱등)
+    });
+
+    const planFile = path.join(ROOT, 'data', 'samples', id, 'slides.json');
+    test('미리 만든 구성안(slides.json)은 정규화해도 그대로', { skip: !fs.existsSync(planFile) }, () => {
+      const plan = JSON.parse(fs.readFileSync(planFile, 'utf8'));
+      assert.equal(plan.source, 'sample');
+      assert.ok(isDeck(plan));
+      const n = normalizeDeck(plan, r, 'sample');
+      assert.deepEqual(n, plan);   // deepEqual은 키 순서를 따지지 않는다
+      assertDeck(n, r);
     });
   });
 }
@@ -187,15 +264,16 @@ describe('빈 결과 · 일부만 있는 결과', () => {
     plan: { sub_questions: [null, { id: 'Q2' }] },
   };
   for (const [name, r] of [['빈 객체', {}], ['null', null], ['일부', partial]]) {
-    test(`${name}: 모든 텍스트 형식과 개요가 죽지 않는다`, async () => {
+    test(`${name}: 모든 텍스트 형식과 구성안이 죽지 않는다`, async () => {
       for (const fmt of TEXT_FORMATS) {
         const out = await exportFile(r, fmt);
         assert.equal(typeof out.data, 'string', fmt);
         assert.ok(out.filename.length > 0);
       }
-      const o = fallbackOutline(r);
-      assert.deepEqual(Object.keys(o), OUTLINE_KEYS);
-      assert.deepEqual(Object.keys(normalizeOutline(null, r)), OUTLINE_KEYS);
+      const d = fallbackDeck(r);
+      assertDeck(d, r);
+      assert.deepEqual(normalizeDeck(d, r), d);
+      assertDeck(normalizeDeck(null, r), r);
       const f = renderFragment(r);
       assert.ok(Array.isArray(f.toc));
       assertInert(buildHtml(r));
@@ -348,42 +426,358 @@ describe('파일 이름 · 형식', () => {
 
 function pdfName(r) { return filenameFor(r, 'pdf'); }
 
-describe('LLM 개요 (가짜 LLM)', () => {
+describe('발표 구성안: 글자 폭과 자르기', () => {
+  test('emLen: 한글 1, 그 밖의 글자 0.55, 인용 표기는 세지 않는다', () => {
+    assert.equal(emLen('가나다'), 3);
+    assert.equal(emLen('abc'), 1.65);
+    assert.equal(emLen('가 a'), 2.1);
+    assert.equal(emLen('줄었다 [S12].'), emLen('줄었다.'));
+    assert.equal(emLen('a [S3, S4] b [S5][S6]'), emLen('a b'));
+    assert.equal(emLen(''), 0);
+    assert.equal(emLen(null), 0);
+    assert.equal(emLen('x'.repeat(20)), 11);   // 부동소수 오차 없이
+  });
+
+  test('clip: 문장 끝 → 절·단어 경계 + …, 인용은 자르지 않는다', () => {
+    assert.equal(clip('짧은 글 [S1].', 10), '짧은 글 [S1].');
+    // 문장 끝에서 자를 수 있으면 거기서(인용은 제자리)
+    assert.equal(clip('첫 문장이다 [S1]. 둘째 문장은 아주 길어서 들어가지 않는다 [S2].', 12), '첫 문장이다 [S1].');
+    // 문장 끝이 없으면 단어 경계에서 자르고 …, 인용 id는 끝에 3개까지
+    const c = clip('가나다라 마바사아 자차카타 파하가나 다라마바 [S1][S2][S3][S4]', 12);
+    assert.equal(c, '가나다라 마바사아…' + ' [S1, S2, S3]');
+    assert.ok(emLen(c) <= 12);
+    // 절 경계(쉼표)를 단어 경계보다 먼저 쓴다
+    assert.equal(clip('하나 둘 셋 넷 다섯 여섯, 일곱 여덟 아홉 열 열하나 열둘', 20), '하나 둘 셋 넷 다섯 여섯…');
+    // 영어 단어 가운데에서 자르지 않는다
+    const en = clip('The quick brown fox jumps over the lazy dog again and again', 12);
+    assert.ok(en.endsWith('…') && emLen(en) <= 12, en);
+    assert.ok(/^The quick brown( fox)?…$/.test(en), en);
+    for (const s of [c, en]) assert.equal(clip(s, 12), s);   // 다시 잘라도 같다
+  });
+});
+
+describe('발표 구성안: 큰 숫자(figureOf)', () => {
+  test('숫자+단위를 한 덩어리로 잡는다(Ω · Ω/sq · µm · 달러 · %p · 개월 …)', () => {
+    assert.equal(figureOf('저항 평균 99.63 Ω(SD 8.10 Ω)'), '99.63 Ω');
+    assert.equal(figureOf('0.05달러 미만'), '0.05달러');
+    assert.equal(figureOf('3.02배 높았다'), '3.02배');
+    assert.equal(figureOf('변화 3.2%p'), '3.2%p', '%p가 %보다 먼저 맞는다');
+  });
+
+  test('범위 · 변화 · ± 도 한 덩어리', () => {
+    assert.equal(figureOf('면저항 7.0→3.5 Ω/sq'), '7.0→3.5 Ω/sq');
+    assert.equal(figureOf('폭 6-7 µm'), '6-7 µm');
+    assert.equal(figureOf('폭 6-7 μm'), '6-7 μm', '그리스 문자 뮤(μ)도');
+    assert.equal(figureOf('(±25 µm)'), '±25 µm');
+    assert.equal(figureOf('0.0%~100.0% 범위'), '0.0%~100.0%');
+  });
+
+  test('연도와 단위 없는 숫자는 건너뛴다', () => {
+    assert.equal(figureOf('2025년 이후 문헌 37건'), '37건');
+    assert.equal(figureOf('2023–2026년 문헌이 60%'), '60%');
+    assert.equal(figureOf('2023–2026년'), '');
+    assert.equal(figureOf('p = 0.05 수준'), '');
+    assert.equal(figureOf('효과크기는 0.45였다'), '');
+  });
+
+  test('첫 번째 것을 쓴다 · 영어 문장 · 너무 긴 숫자는 쓰지 않는다', () => {
+    assert.equal(figureOf('56.7%, 전문직에서 40%'), '56.7%');
+    assert.equal(figureOf('12개월 추적에서 3.2%p'), '12개월');
+    assert.equal(figureOf('fell by 40% in 2023'), '40%');
+    const long = '12,345,678,901,234명';
+    assert.ok(emLen(long) > DECK_LIMITS.figure);
+    assert.equal(figureOf(`${long}이 응답`), '');
+    assert.ok(emLen(figureOf('1,234,567,890명이 응답')) <= DECK_LIMITS.figure);
+  });
+
+  test('빼기표가 붙은 수는 쓰지 않는다(부호를 떼면 뜻이 반대가 된다)', () => {
+    const MINUS = String.fromCharCode(0x2212), ENDASH = String.fromCharCode(0x2013);
+    assert.equal(figureOf(`효과 크기 ${MINUS}0.3 SD였다`), '');
+    assert.equal(figureOf(`변화율 ${ENDASH}12%였다`), '');
+    assert.equal(figureOf('-12.5% 감소'), '');
+    assert.equal(figureOf('효과크기는 0.3 SD였다'), '0.3 SD', '부호가 없으면 그대로');
+  });
+
+  test('단위가 더 긴 낱말 · 다른 단위의 앞부분이면 쓰지 않는다', () => {
+    for (const t of ['3개국 연구', '전국 20개교', '4년제 대학생', '석사 2년차', '2.4 개념적 모호성', '4.3 종합 판단', '약 2 명확한',
+      '약 0.5 Ω/cm를 기록했다']) assert.equal(figureOf(t), '', t);
+    // 조사 · 접미사가 붙은 단위는 그대로 쓴다
+    assert.equal(figureOf('표본은 453명으로 늘었다'), '453명');
+    assert.equal(figureOf('3년간 추적했다'), '3년');
+    assert.equal(figureOf('참가자 100명당 3건'), '100명');
+    assert.equal(figureOf('5개로 나뉜다'), '5개');
+    assert.equal(figureOf('작성 시간은 대학원생에서 56.7% 줄었다'), '56.7%', "'에서'는 범위가 아닐 때도 많다");
+  });
+
+  test('신뢰수준과 범위의 뒤쪽 값은 결과가 아니다', () => {
+    assert.equal(figureOf('OR 2.1 (95% CI 1.2-3.4)'), '');
+    assert.equal(figureOf('ranged from 0.2 to 0.5 SD'), '');
+    assert.equal(figureOf('0.2에서 0.5 SD까지'), '');
+    assert.equal(figureOf('2023년부터 40% 증가했다'), '40%');
+  });
+});
+
+describe('발표 구성안: 보고서 줄 나누기', () => {
+  // U+2028(줄 구분자) · U+2029(문단 구분자)는 글자 그대로 쓰지 않고 코드로 만든다
+  const LS = String.fromCharCode(0x2028), PS = String.fromCharCode(0x2029);
+
+  test('sections · numbered는 U+2028 · U+2029에서도 줄을 나눈다', () => {
+    const md = `## 1. 요약${LS}본문 하나${PS}## 참고${LS}- x${PS}## 2) 결론${LS}끝`;
+    assert.deepEqual(sections(md), [['1. 요약', ['본문 하나']], ['참고', ['- x']], ['2) 결론', ['끝']]]);
+    assert.deepEqual(numbered(md), [['1. 요약', ['본문 하나']], ['2) 결론', ['끝']]]);
+  });
+
+  test('소스 파일에 U+2028 · U+2029 글자가 그대로 들어 있지 않다', () => {
+    const files = [];
+    const walk = (dir) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.name.endsWith('.js')) files.push(p);
+      }
+    };
+    walk(path.join(ROOT, 'assets', 'js'));
+    walk(path.join(ROOT, 'tests'));
+    assert.ok(files.length > 10, `파일 ${files.length}개`);
+    for (const f of files) {
+      const src = fs.readFileSync(f, 'utf8');
+      assert.ok(!src.includes(LS) && !src.includes(PS), path.relative(ROOT, f));
+    }
+  });
+});
+
+describe('발표 구성안: normalizeDeck', () => {
   const r = samples[SAMPLE_IDS[0]];
-  test('makeOutline은 스키마·옵션을 넘기고 결과를 정규화한다', async () => {
+  const known = new Set(r.sources.map((s) => s.sid));
+  assert.ok(known.has('S3') && known.has('S15') && !known.has('S999'));
+
+  test('어떤 입력이 와도 같은 모양(빈 값으로 채운다)', () => {
+    for (const x of [null, undefined, 5, 'x', [], {}, { messages: 'bad', notes: [], gaps: {}, subq_labels: null }]) {
+      for (const res of [r, null, {}]) {
+        const d = normalizeDeck(x, res);
+        assert.deepEqual(Object.keys(d), DECK_KEYS);
+        assert.deepEqual(Object.keys(d.notes), NOTE_KEYS);
+        assert.deepEqual(d.messages, []);
+        assert.equal(d.source, 'rules');
+      }
+    }
+    const d = normalizeDeck({}, r);
+    assert.equal(d.title, r.topic);   // 표지 제목이 비면 주제
+    assert.deepEqual(d.subq_labels.map((x) => x.id), r.plan.sub_questions.map((q) => q.id));
+    assert.deepEqual(d.subq_labels, subqLabels(r));
+    assertDeck(d, r);
+  });
+
+  test('source: 인자 → 입력의 source → rules', () => {
+    assert.equal(normalizeDeck({ source: 'sample' }, r).source, 'sample');
+    assert.equal(normalizeDeck({ source: 'sample' }, r, 'llm').source, 'llm');
+    assert.equal(normalizeDeck({ source: 'bogus' }, r).source, 'rules');
+    assert.equal(normalizeDeck({}, r, 'bogus').source, 'rules');
+  });
+
+  test('없는 문헌 id는 sids · must_read · 글 안에서 지운다', () => {
+    const d = normalizeDeck({
+      answer: '시간이 줄었다 [S3, S999]. 품질은 엇갈린다 [S999].',
+      agree: ['일치한다 [S999][S15]', '[S999]'],
+      messages: [{ headline: 'h', points: [{ figure: '40%', text: 't [S999]', detail: '', sids: ['S999', '[S15]', 'S15', 'S3', 'S55', 'S7'] }],
+        takeaway: '', strength: 'weak', subq_ids: ['Q1', 'Q99', 'Q1', 3], notes: '노트 [S15, S999]' }],
+      must_read: [{ sid: '[S15]', why: 'w [S999]' }, { sid: 'S15', why: 'dup' }, { sid: 'S999', why: 'x' }, { sid: 'constructor' }, null],
+    }, r);
+    assert.equal(d.answer, '시간이 줄었다 [S3]. 품질은 엇갈린다.');
+    assert.deepEqual(d.agree, ['일치한다[S15]']);
+    const m = d.messages[0];
+    assert.equal(m.points[0].text, 't');
+    assert.deepEqual(m.points[0].sids, ['S15', 'S3', 'S55']);   // 있는 것만, 중복 없이, 3개까지
+    assert.deepEqual(m.subq_ids, ['Q1']);
+    assert.equal(m.notes, '노트 [S15]');
+    assert.deepEqual(d.must_read, [{ sid: 'S15', why: 'w' }]);
+  });
+
+  test('길이 · 개수 제한', () => {
+    const long = '가'.repeat(200);
+    const msg = (i) => ({ headline: `제목 ${i}`, points: [1, 2, 3, 4].map((k) => ({ figure: '1,234,567,890,123,456명', text: `${long} ${k}`, detail: long, sids: [] })),
+      takeaway: long, strength: 'strong', subq_ids: [], notes: long });
+    const d = normalizeDeck({
+      title: long, subtitle: long, question: long, context: [long, 'a', 'a', 'b', 'c'], answer: long,
+      messages: [1, 2, 3, 4, 5, 6, 7].map(msg), agree: ['a', 'b', 'c', 'd'], conflict: [long],
+      gaps: [1, 2, 3, 4, 5].map((k) => ({ gap: `g${k}`, why: long })), next_studies: [1, 2, 3, 4].map((k) => ({ title: `t${k}`, design: long })),
+      cautions: ['1', '2', '3', '4', '5'], takeaways: ['1', '2', '3', '4'], must_read: [...known].slice(0, 7).map((sid) => ({ sid, why: long })),
+      notes: { opening: long.repeat(5) },
+    }, r);
+    assertDeck(d, r);
+    assert.equal(d.messages.length, 5);
+    assert.deepEqual(d.messages.map((m) => m.headline), ['제목 1', '제목 2', '제목 3', '제목 4', '제목 5']);
+    assert.equal(d.messages[0].points.length, 3);
+    assert.equal(d.messages[0].points[0].figure, '');   // 9em을 넘는 숫자는 자르지 않고 비운다
+    assert.ok(d.messages[0].points[0].text.endsWith('…'));
+    assert.deepEqual(d.context, [clip(long, DECK_LIMITS.context.len), 'a', 'b']);
+    assert.equal(d.agree.length, 3);
+    assert.equal(d.gaps.length, 4);
+    assert.equal(d.next_studies.length, 3);
+    assert.deepEqual(d.next_studies[0].sample, '');
+    assert.equal(d.cautions.length, 4);
+    assert.equal(d.takeaways.length, 3);
+    assert.equal(d.must_read.length, 5);
+    assert.equal(d.title, '가'.repeat(43) + '…');   // 43em + '…'(0.55em) ≤ 44em
+    assert.deepEqual(normalizeDeck(d, r), d);   // 멱등
+  });
+
+  test('근거 강도: 답하는 하위 질문의 종합 가운데 가장 약한 값. 종합이 없을 때만 구성안의 값, 그것도 없으면 insufficient', () => {
+    const strength = (m) => normalizeDeck({ messages: [{ headline: 'h', ...m }] }, r).messages[0].strength;
+    assert.equal(r.syntheses.Q1.evidence_strength, 'moderate');
+    assert.equal(r.syntheses.Q2.evidence_strength, 'weak');
+    assert.equal(strength({ strength: 'bogus', subq_ids: ['Q1'] }), 'moderate');
+    assert.equal(strength({ strength: 'bogus', subq_ids: ['Q1', 'Q2'] }), 'weak');
+    assert.equal(strength({ subq_ids: [] }), 'insufficient');
+    // 모델이 적은 값이 종합과 다르면 종합을 따른다(메시지 슬라이드의 막대가 부록 A와 어긋나지 않게)
+    assert.equal(strength({ strength: 'strong', subq_ids: ['Q2'] }), 'weak');
+    assert.equal(strength({ strength: 'strong', subq_ids: [] }), 'strong', '하위 질문이 없으면 구성안의 값');
+  });
+
+  test('큰 숫자는 보고서에 있는 수만 남긴다(반올림 · 지어낸 수는 비운다)', () => {
+    const fig = (figure) => normalizeDeck({ messages: [{ headline: 'h', points: [{ figure, text: 't' }] }] }, r).messages[0].points[0].figure;
+    assert.ok(r.report_markdown.includes('56.7%') && r.report_markdown.includes('3.02배'));
+    assert.equal(fig('56.7%'), '56.7%');
+    assert.equal(fig('3.02배'), '3.02배');
+    assert.equal(fig('A- → A'), 'A- → A', '숫자가 없는 표기는 그대로');
+    assert.equal(fig('57%'), '', '반올림한 수');
+    assert.equal(fig('3.0배'), '', '소수는 같은 표기가 보고서에 있어야 한다');
+    assert.equal(fig('12,345,678,901%'), '', '지어낸 수');
+    assert.equal(fig('0~100%'), '0~100%', '정수는 같은 값이면 된다(0 = 0.0)');
+    // 보고서가 없으면 확인할 수 없으므로 그대로 둔다
+    assert.equal(normalizeDeck({ messages: [{ headline: 'h', points: [{ figure: '57%', text: 't' }] }] }, {}).messages[0].points[0].figure, '57%');
+  });
+
+  test('채택하지 않은 문헌의 id는 구성안에 오르지 않는다', () => {
+    const cited = new Set(citedIds(r.report_markdown));
+    const used = new Set(Object.values(r.syntheses).flatMap((s) => s.sources || []));
+    const stray = r.sources.find((s) => !cited.has(s.sid) && !used.has(s.sid));
+    assert.ok(stray, '샘플에 인용되지 않은 문헌이 있어야 한다');
+    const d = normalizeDeck({ messages: [{ headline: 'h', points: [{ text: `주장 [${stray.sid}]`, sids: [stray.sid, 'S15'] }] }],
+      must_read: [{ sid: stray.sid, why: '이유' }, { sid: 'S15', why: '이유' }] }, r);
+    assert.deepEqual(d.messages[0].points[0].sids, ['S15']);
+    assert.equal(d.messages[0].points[0].text, '주장');
+    assert.deepEqual(d.must_read.map((m) => m.sid), ['S15']);
+  });
+
+  test('제어 문자는 구성안에 남지 않는다', () => {
+    const soh = String.fromCharCode(1), nul = String.fromCharCode(0);
+    const d = normalizeDeck({ title: `제목${soh}하나${nul}`, messages: [{ headline: `주장${soh}`, notes: `노트${soh}` }] }, r);
+    assert.equal(d.title, '제목하나');
+    assert.equal(d.messages[0].headline, '주장');
+    assert.equal(d.messages[0].notes, '노트');
+  });
+
+  test('isDeck: v1 개요와 이상한 값은 false', () => {
+    assert.equal(isDeck({ title: 't', subtitle: '', summary: [], findings: [], agreements: [], conflicts: [], gaps: [],
+      future_studies: [], must_read: [], limitations: [] }), false);
+    for (const x of [null, undefined, {}, { version: 2 }, { version: '2', messages: [] }, { version: 1, messages: [] }]) assert.equal(isDeck(x), false);
+    assert.equal(isDeck({ version: 2, messages: [] }), true);
+    assert.equal(isDeck(normalizeDeck(null, null)), true);
+  });
+});
+
+describe('발표 구성안: makeDeck (가짜 LLM)', () => {
+  const r = samples[SAMPLE_IDS[0]];
+  test('스키마 · 옵션을 넘기고 결과를 정규화한다', async () => {
     const calls = [];
     const llm = {
       async json(system, prompt, schema, opts) {
         calls.push({ system, prompt, schema, opts });
-        return {
-          title: 'T'.repeat(300), subtitle: 'sub', summary: ['a [S1]', 'a [S1]', '', 5, 'b'],
-          findings: [{ subq_id: 'Q1', headline: 'h', bullets: ['x'], strength: 'bogus' }, 'bad', { subq_id: 'Q9' }],
-          agreements: [], conflicts: [], gaps: ['g'], limitations: ['l'],
-          future_studies: [{ title: 'f', question: 1 }, { title: '' }],
-          must_read: [{ sid: '[S1]', why: 'w' }, { sid: 'S1', why: 'dup' }, { sid: 'S99999' }, { sid: 'constructor' }, null],
-        };
+        return { title: 'T'.repeat(300), messages: [{ headline: 'h', points: [{ figure: '40%', text: 'x [S999]', sids: ['S999', 'S15'] }], strength: 'bogus', subq_ids: ['Q1'] }],
+          must_read: [{ sid: 'S99999' }], subq_labels: [{ id: 'Q1', label: '측정' }] };
       },
     };
-    const o = await makeOutline(llm, r);
+    const d = await makeDeck(llm, r);
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].schema, OUTLINE_SCHEMA);
+    assert.equal(calls[0].schema, DECK_SCHEMA);
     assert.deepEqual(calls[0].opts, { effort: 'medium', maxTokens: 16000 });
     assert.ok(calls[0].system.startsWith('You are a rigorous research assistant agent'));
-    assert.ok(calls[0].system.includes("not stated in the abstract"));
-    assert.ok(calls[0].prompt.includes('Write all text in language "ko".'));
-    assert.ok(calls[0].prompt.includes(`- Q1: ${r.plan.sub_questions[0].question}`));
-    assert.equal(o.title.length, 120);
-    assert.equal(o.title.endsWith('…'), true);
-    assert.deepEqual(o.summary, ['a [S1]', 'b']);
-    assert.equal(o.findings.length, 1);
-    assert.equal(o.findings[0].strength, r.syntheses.Q1.evidence_strength);
-    assert.deepEqual(o.must_read, [{ sid: 'S1', why: 'w' }]);
-    assert.deepEqual(o.future_studies, [{ title: 'f', question: '', design: '', sample: '', contribution: '' }]);
+    assert.ok(calls[0].system.includes('not stated in the abstract'));
+    const p = calls[0].prompt;
+    assert.ok(p.includes('TALK, not a summary'));
+    assert.ok(p.includes('Write all text in language "ko".'));
+    assert.ok(p.includes(r.report_markdown), '보고서 전문');
+    assert.ok(p.includes(`- Q1: ${r.plan.sub_questions[0].question} (evidence strength: moderate; ${r.syntheses.Q1.sources.length} sources)`));
+    assert.ok(p.includes(`${r.meta.counts.collected} records collected`) && p.includes(`${r.meta.counts.included} sources included`));
+    assert.ok(p.includes('Search window: 2022 onward.'));
+    assert.ok(p.includes('- S15: '), '인용할 수 있는 문헌 목록');
+    assert.ok(p.includes(`headline ${Math.floor(DECK_LIMITS.headline * 0.8)},`), '한국어는 제한의 80%를 글자 수 그대로 알려 준다');
+    assert.ok(p.includes(`detail ${Math.floor(DECK_LIMITS.detail * 0.8)};`));
+    assert.ok(p.includes(`each agree / conflict item ${Math.floor(DECK_LIMITS.agree.len * 0.8)},`));
+    assert.ok(p.includes(`design / sample / payoff ${Math.floor(DECK_LIMITS.next_studies.design * 0.8)} each`));
+    // 오늘 줄인 제한(detail 56, agree 58, next_studies 58)의 80%
+    assert.ok(p.includes('detail 44;') && p.includes('item 46,') && p.includes('payoff 46 each'));
+    assert.equal(d.source, 'llm');
+    assert.equal(emLen(d.title), DECK_LIMITS.title);
+    assert.deepEqual(d.messages[0].points[0], { figure: '40%', text: 'x', detail: '', sids: ['S15'] });
+    assert.equal(d.messages[0].strength, 'moderate');
+    assert.deepEqual(d.must_read, []);
+    assert.equal(d.subq_labels[0].label, '측정');
+    assert.equal(d.subq_labels.length, r.plan.sub_questions.length);
+    assertDeck(d, r);
   });
-  test('LLM이 null이면 null', async () => {
-    assert.equal(await makeOutline({ json: async () => null }, r), null);
+
+  test('영어 결과에는 em ÷ 0.55 글자 수의 80%를 알려 준다', async () => {
+    let prompt = '';
+    await makeDeck({ json: async (s, p) => { prompt = p; return {}; } }, { ...r, lang: 'en' });
+    assert.ok(prompt.includes(`headline ${Math.floor((DECK_LIMITS.headline / 0.55) * 0.8)},`), 'headline 66');
+    const en = (em) => Math.floor((em / 0.55) * 0.8);
+    assert.ok(prompt.includes(`detail ${en(DECK_LIMITS.detail)};`), 'detail 81');
+    assert.ok(prompt.includes(`each agree / conflict item ${en(DECK_LIMITS.agree.len)},`), 'agree 84');
+    assert.ok(prompt.includes(`design / sample / payoff ${en(DECK_LIMITS.next_studies.design)} each`), 'next_studies 84');
+    assert.ok(prompt.includes('Write all text in language "en".'));
   });
-  test('스키마는 strict 구조화 출력 규칙을 지킨다', () => {
+
+  test('한 글자가 1em인 언어(일본어 · 중국어)에는 한국어처럼 em 기준 글자 수를 알려 준다', async () => {
+    for (const lang of ['ja', 'zh', 'zh-TW']) {
+      let prompt = '';
+      await makeDeck({ json: async (s, p) => { prompt = p; return {}; } }, { ...r, lang });
+      assert.ok(prompt.includes(`headline ${Math.floor(DECK_LIMITS.headline * 0.8)},`), lang);
+      assert.ok(prompt.includes('a CJK character counts 1'), lang);
+    }
+  });
+
+  test('보고서 안의 큰따옴표 세 개는 프롬프트의 인용 구역을 닫지 못한다', async () => {
+    const q3 = '"'.repeat(3);
+    let prompt = '';
+    await makeDeck({ json: async (s, p) => { prompt = p; return {}; } }, { ...r, report_markdown: `앞 ${q3} 가운데 ${q3} 뒤` });
+    assert.equal(prompt.split(q3).length, 3, '여는 것과 닫는 것 두 개뿐이어야 한다');
+    assert.ok(prompt.includes("앞 ''' 가운데 ''' 뒤"));
+  });
+
+  test('발표자 노트는 한 번의 응답에 들어가는 길이로 묶는다', () => {
+    const L = DECK_LIMITS;
+    // 가장 길게 써도(메시지 5개 + 슬라이드 노트 9개) 6천 자를 넘지 않는다
+    assert.ok(L.messages.max * L.message_notes + 9 * L.notes <= 6500, `${L.messages.max * L.message_notes + 9 * L.notes}`);
+  });
+
+  test('LLM이 null · undefined면 null', async () => {
+    assert.equal(await makeDeck({ json: async () => null }, r), null);
+    assert.equal(await makeDeck({ json: async () => undefined }, r), null);
+  });
+
+  test('FakeLLM도 DECK_SCHEMA에 유효한 구성안으로 답한다', async () => {
+    for (const res of [r, samples[SAMPLE_IDS[1]], {}]) {
+      const llm = new FakeLLM();
+      const d = await makeDeck(llm, res);
+      assert.deepEqual(llm.calls, ['deck']);
+      assertDeck(d, res);
+      assert.equal(d.messages.length, 3);
+    }
+    // 가짜 구성안의 id는 모두 실제 문헌이라 정규화에서 빠지는 것이 없다
+    const llm = new FakeLLM();
+    let prompt = '';
+    const spy = { json: async (s, p, schema, o) => { prompt = p; return llm.json(s, p, schema, o); } };
+    const d = await makeDeck(spy, r);
+    const raw = await llm.json('', prompt, DECK_SCHEMA);
+    const ids = raw.messages.flatMap((m) => m.points.flatMap((x) => x.sids));
+    assert.ok(ids.length > 0);
+    for (const sid of ids) assert.ok(r.sources.some((s) => s.sid === sid), sid);
+    assert.deepEqual(d.messages.map((m) => m.points.map((x) => x.sids)), raw.messages.map((m) => m.points.map((x) => x.sids)));
+  });
+
+  test('스키마는 strict 구조화 출력 규칙을 지키고 모든 키가 필수다', () => {
     const walk = (s) => {
       if (s.type === 'object') {
         assert.equal(s.additionalProperties, false);
@@ -391,8 +785,14 @@ describe('LLM 개요 (가짜 LLM)', () => {
         Object.values(s.properties).forEach(walk);
       } else if (s.type === 'array') walk(s.items);
     };
-    walk(OUTLINE_SCHEMA);
-    assert.deepEqual(OUTLINE_SCHEMA.required, OUTLINE_KEYS.slice(0, 3).concat(['findings', 'agreements', 'conflicts', 'gaps', 'future_studies', 'must_read', 'limitations']));
+    walk(DECK_SCHEMA);
+    assert.deepEqual(DECK_SCHEMA.required, DECK_KEYS.filter((k) => k !== 'version' && k !== 'source'));
+    const msg = DECK_SCHEMA.properties.messages.items;
+    assert.deepEqual(msg.required, ['headline', 'points', 'takeaway', 'strength', 'subq_ids', 'notes']);
+    assert.deepEqual(msg.properties.strength.enum, STRENGTHS);
+    assert.deepEqual(msg.properties.points.items.required, ['figure', 'text', 'detail', 'sids']);
+    assert.deepEqual(DECK_SCHEMA.properties.notes.required, NOTE_KEYS);
+    assert.equal(FakeLLM.stageOf(DECK_SCHEMA), 'deck');
   });
 });
 

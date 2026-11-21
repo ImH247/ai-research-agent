@@ -26,7 +26,7 @@ import { DEMO_NOTE, DEMO_SAMPLE, demoAnswer, parseJsonl, replay } from './demo.j
 import { buildRunFile, cleanQa, parseRunFile, runFileName } from './runfile.js';
 import { FORMATS, FORMAT_IDS, bundleName, exportBundle, exportFile } from '../export/index.js';
 import { renderFragment, renderMarkdown } from '../export/html.js';
-import { fallbackOutline, makeOutline } from '../export/slides.js';
+import { fallbackDeck, isDeck, makeDeck, normalizeDeck } from '../export/slides.js';
 
 export { BackendError } from './runs.js';
 
@@ -104,7 +104,8 @@ class Backend {
     this._samples = [];
     this._exports = new Map();          // id → Map(fmt → 결과물)  — 이번 페이지 세션 동안만
     this._inflight = new Map();         // `${id}:${fmt}` → 만드는 중인 Promise
-    this._outlines = new Map();         // id → 슬라이드 개요
+    this._decks = new Map();            // id → 발표 구성안(deck plan v2)
+    this._bundled = new Map();          // 샘플 id → 미리 만들어 둔 구성안(slides.json)을 읽는 Promise
     this._qaChains = new Map();
     this._demoCache = null;
     this._storageWarning = null;
@@ -561,17 +562,26 @@ class Backend {
     run.emit('export', 'stage', '결과물 내보내기 시작', { status: 'start', round: run.round });
     if (run.formats.includes('pptx')) {
       await run.checkpoint();
-      let outline = null;
+      // 발표 구성안: ① 이 실행의 LLM이 발표용으로 따로 짠다 ② 안 되면(데모 · 실패) 미리 만든 구성안 → 규칙 구성안
+      let deck = null;
       if (run.llm) {
+        let why = '응답 없음';      // makeDeck이 오류 없이 null을 돌려준 경우(LLM 호출이 끝내 실패)
         try {
-          outline = await makeOutline(run.llm, result);
+          deck = await makeDeck(run.llm, result);
         } catch (e) {
           if (e instanceof RunCancelled || isAbortError(e) || run._cancel) throw e;
-          run.emit('export', 'warning', `슬라이드 개요 생성 실패 → 규칙 기반 개요 사용 (${e?.name || 'Error'})`, null);
+          why = e?.name || 'Error';
         }
+        // AI가 구성안을 주지 못하면 규칙 구성안으로 넘어간다. 조용히 바뀌지 않도록 과정 기록에 남긴다
+        if (!deck) run.emit('export', 'warning', `발표 구성안 생성 실패 → 규칙으로 구성 (${why})`, null);
+        // 구성안 호출도 LLM 사용량이다: 결과에 적어 둔 사용량 · 비용을 고쳐 다시 저장한다
+        // (그대로 두면 결과 화면의 비용이 실행 목록의 비용보다 적게 보인다)
+        result.meta = { ...(result.meta || {}), usage: run.liveUsage() };
+        run.resultCache = result;
+        await run._write('results', run.id, result);
       }
-      if (!outline) outline = fallbackOutline(result);
-      await this._storeOutline(run, outline);
+      if (!deck) deck = (await this._bundledDeck(run, result)) || fallbackDeck(result);
+      await this._storeDeck(run, deck);
     }
     for (const fmt of run.formats) {
       await run.checkpoint();
@@ -588,23 +598,81 @@ class Backend {
   }
 
   // ── 결과물 ──
-  async _storeOutline(run, outline) {
-    this._outlines.set(run.id, outline);
-    if (!run.sample) await run._write('meta', `slides:${run.id}`, outline);
+  async _storeDeck(run, deck) {
+    this._decks.set(run.id, deck);
+    if (!run.sample) {
+      await run._write('meta', `slides:${run.id}`, deck);
+      return;
+    }
+    // 샘플은 저장소에 연결하지 않으므로(읽기 전용) 직접 쓴다: 키로 다시 구성한 결과를 새로고침 뒤에도 쓰게
+    try {
+      await this.storage.put('meta', `slides:${run.id}`, deck);
+    } catch { /* 저장하지 못해도 이번 세션에서는 메모리 값을 쓴다 */ }
   }
 
-  async _outline(run, result) {
-    if (this._outlines.has(run.id)) return this._outlines.get(run.id);
-    if (!run.sample) {
-      try {
-        const o = await this.storage.get('meta', `slides:${run.id}`);
-        if (isObj(o)) {
-          this._outlines.set(run.id, o);
-          return o;
-        }
-      } catch { /* 없으면 규칙 기반 */ }
+  /** 이 실행에 딸린 샘플 id: 샘플은 자기 id, 데모는 DEMO_SAMPLE(같은 보고서를 재생한다),
+   *  조사 파일로 가져온 샘플은 원래 샘플 id(같은 보고서·문헌). 아니면 null */
+  _sampleIdOf(run, result) {
+    if (run.sample) return run.id;
+    if (run.demo) return DEMO_SAMPLE;
+    const meta = isObj(result?.meta) ? result.meta : {};
+    if (run.imported && meta.sample === true && this._samples.includes(meta.imported_from)) return meta.imported_from;
+    return null;
+  }
+
+  /** data/samples/<id>/slides.json(미리 만든 구성안). 한 번만 읽고, 없거나 형식이 틀리면 null(규칙 구성안으로 조용히 넘어간다) */
+  _bundledPlan(sampleId) {
+    if (!this._loadSample) return Promise.resolve(null);
+    if (!this._bundled.has(sampleId)) {
+      const p = Promise.resolve()
+        .then(() => this._loadSample(`${sampleId}/slides.json`))
+        .then((text) => {
+          const d = JSON.parse(text);
+          return isDeck(d) ? d : null;
+        })
+        .catch(() => {
+          this._bundled.delete(sampleId);     // 네트워크 오류일 수 있으니 실패는 기억하지 않는다
+          return null;
+        });
+      this._bundled.set(sampleId, p);
     }
-    return fallbackOutline(result);
+    return this._bundled.get(sampleId);
+  }
+
+  /** 샘플 · 데모 실행이면 미리 만든 구성안(정규화, source 'sample'), 아니면 null */
+  async _bundledDeck(run, result) {
+    const sampleId = this._sampleIdOf(run, result);
+    if (!sampleId) return null;
+    const raw = await this._bundledPlan(sampleId);
+    if (!raw) return null;
+    const deck = normalizeDeck(raw, result, 'sample');
+    return deck.messages.length ? deck : null;
+  }
+
+  /** 이미 있는 구성안: 메모리 → 저장소(v2만. 옛 v1 개요는 버린다) → 샘플 · 데모의 미리 만든 구성안. 없으면 null */
+  async _findDeck(run, result) {
+    if (this._decks.has(run.id)) return this._decks.get(run.id);
+    try {
+      const d = await this.storage.get('meta', `slides:${run.id}`);
+      if (isDeck(d)) {
+        this._decks.set(run.id, d);
+        return d;
+      }
+    } catch { /* 읽지 못하면 다음 후보 */ }
+    const bundled = await this._bundledDeck(run, result);
+    if (bundled) this._decks.set(run.id, bundled);
+    return bundled;
+  }
+
+  /** PowerPoint를 만들 때 쓰는 구성안. 아무것도 없으면 규칙 구성안(가볍고 항상 성공) */
+  async _deck(run, result) {
+    return (await this._findDeck(run, result)) || fallbackDeck(result);
+  }
+
+  /** 지금 PowerPoint를 받으면 쓰일 구성안의 출처: 'llm' | 'sample' | 'rules' (규칙 구성안은 만들지 않고 이름만) */
+  async _deckSource(run, result) {
+    const d = await this._findDeck(run, result);
+    return d && ['llm', 'sample', 'rules'].includes(d.source) ? d.source : 'rules';
   }
 
   _cache(id) {
@@ -620,8 +688,8 @@ class Backend {
     if (this._inflight.has(k)) return this._inflight.get(k);
     const p = (async () => {
       try {
-        const outline = fmt === 'pptx' ? await this._outline(run, result) : null;
-        const file = await exportFile(result, fmt, { outline });
+        const deck = fmt === 'pptx' ? await this._deck(run, result) : null;
+        const file = await exportFile(result, fmt, { deck });
         if (run.deleted) throw notFound();
         cache.set(fmt, file);
         run.setExport(fmt, 'ready');
@@ -675,22 +743,24 @@ class Backend {
     return { ...(await this._export(run, result, fmt)) };
   }
 
+  /** 발표 자료 다시 구성: body {api_key, model}로 LLM이 구성안을 새로 짜고 PowerPoint를 다시 만든다 → {ok, llm, source}.
+   *  키가 없으면 데모 · 샘플도 no_api_key(미리 만든 구성안은 이미 쓰이고 있으므로 키 없이 '다시' 할 일이 없다). */
   async slides(id, body = {}) {
     const [run, result] = await this._requireResult(id);
     body = isObj(body) ? body : {};
-    const keyRaw = typeof body.api_key === 'string' ? body.api_key.trim() : '';
-    let outline = null;
-    if (keyRaw || !run.demo) {          // 데모 실행은 키가 없으면 규칙 기반 개요
-      const key = this._key(body.api_key);
-      this._checkModel(body.model);
-      const model = body.model || result.meta?.model || run.config.model;
-      outline = await this._llmCall(() => makeOutline(this._llmFactory({ apiKey: key, model, onWarning: null, signal: null }), result));
-    }
-    const usedLlm = Boolean(outline);
-    await this._storeOutline(run, outline || fallbackOutline(result));
+    const key = this._key(body.api_key);
+    this._checkModel(body.model);
+    const model = body.model || result.meta?.model || run.config.model;
+    const deck = await this._llmCall(() => makeDeck(this._llmFactory({ apiKey: key, model, onWarning: null, signal: null }), result));
+    // 실패했으면 지금 구성안을 그대로 둔다(규칙 구성안으로 덮어쓰지 않는다)
+    if (!deck) throw new BackendError('slides_failed', 'AI가 발표 구성안을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.', 502);
+    // 이전 구성안으로 만드는 중인 PowerPoint가 있으면 끝난 뒤에 바꾼다(옛 파일이 캐시에 다시 들어가지 않게)
+    const pending = this._inflight.get(`${run.id}:pptx`);
+    if (pending) await pending.catch(() => {});
+    await this._storeDeck(run, deck);
     this._cache(run.id).delete('pptx');
     await this._export(run, result, 'pptx');
-    return { ok: true, llm: usedLlm };
+    return { ok: true, llm: true, source: 'llm' };
   }
 
   async run(id) {
@@ -747,7 +817,7 @@ class Backend {
     run.deleted = true;           // 이후 저장은 아무것도 하지 않는다(기록이 되살아나지 않게)
     this._runs.delete(id);
     this._exports.delete(id);
-    this._outlines.delete(id);
+    this._decks.delete(id);
     for (const store of ['runs', 'events', 'results', 'checkpoints', 'qa']) run._write(store, id, null, true);
     run._write('meta', `slides:${id}`, null, true);
     await run._chain;
@@ -762,6 +832,7 @@ class Backend {
     return {
       ...result, report_html: frag.html, toc: frag.toc, exports: this._exportsStatus(run),
       qa: qa.map((it) => this._qaView(it, known)),
+      slides_source: await this._deckSource(run, result),     // 지금 PowerPoint를 받으면 쓰일 구성안: llm | sample | rules
       parent_id: run.parent_id ?? result.meta?.parent_id ?? null, custom_title: run.custom_title, imported: run.imported,
     };
   }

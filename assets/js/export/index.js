@@ -4,7 +4,6 @@
 import { buildMarkdown } from './markdown.js';
 import { buildHtml } from './html.js';
 import { buildBibtex, buildCsv, buildRis } from './refs.js';
-import { fallbackOutline } from './slides.js';
 
 export const FORMATS = [
   { id: 'md', label: 'Markdown 보고서', ext: '.md', mime: 'text/markdown; charset=utf-8',
@@ -18,7 +17,7 @@ export const FORMATS = [
     description: '편집할 수 있는 Word 보고서', group: 'report' },
   { id: 'pptx', label: '발표 슬라이드', ext: '.pptx',
     mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    description: '보고서를 요약한 발표용 PowerPoint', group: 'slides' },
+    description: '발표용으로 따로 구성한 PowerPoint(발표자 노트 포함)', group: 'slides' },
   { id: 'bib', label: '참고문헌 BibTeX', ext: '.bib', mime: 'application/x-bibtex; charset=utf-8',
     description: '채택 문헌의 BibTeX 항목', group: 'refs' },
   { id: 'ris', label: '참고문헌 RIS', ext: '.ris', mime: 'application/x-research-info-systems; charset=utf-8',
@@ -60,7 +59,8 @@ export function bundleName(result) {
 
 // 결과물 하나를 만든다 → { filename, mime, data } (data: 문자열 또는 Uint8Array).
 // pdf는 인쇄용 HTML을 돌려주고 print: true — 화면이 새 창에 열어 인쇄 창('PDF로 저장')을 띄운다.
-export async function exportFile(result, fmt, { outline = null } = {}) {
+// deck: 발표 구성안(v2). 없거나 v2가 아니면 buildPptx가 규칙 구성안을 만든다. outline은 옛 이름(같은 뜻으로 받는다).
+export async function exportFile(result, fmt, { deck = null, outline = null } = {}) {
   const filename = filenameFor(result, fmt);      // 알 수 없는 형식 검사도 겸한다
   const mime = BY_ID[fmt].mime;
   result = result || {};
@@ -77,7 +77,7 @@ export async function exportFile(result, fmt, { outline = null } = {}) {
     }
     case 'pptx': {
       const { buildPptx } = await import('./pptx.js');
-      return { filename, mime, data: await buildPptx(result, outline || fallbackOutline(result)) };
+      return { filename, mime, data: await buildPptx(result, deck || outline || null) };
     }
     case 'bib':
       return { filename, mime, data: buildBibtex(result) };

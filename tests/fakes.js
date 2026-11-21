@@ -6,7 +6,9 @@
 //                 pauseTurn = false, rejectWebSearch = false, model = 'claude-opus-5-5' })
 //     engine/llm.js의 LLM과 같은 인터페이스(model, usage, json, text, toolTurn, costUsd, textOf, echoContent).
 //     json()은 스키마의 키로 단계를 알아내 결정적으로 답한다:
-//     understanding / plan / evaluation / synthesis / reflection / verification / repair / refine (그 밖은 null).
+//     understanding / plan / evaluation / synthesis / reflection / verification / repair / refine / deck (그 밖은 null).
+//     deck(발표 구성안, export/slides.js의 DECK_SCHEMA)은 프롬프트의 '인용해도 되는 문헌' 목록에 있는 id만 인용한
+//     유효한 v2 구성안을 준다(목록이 비면 sids는 빈 배열).
 //     - continueRounds: 자기 비판에서 should_continue=true로 답할 라운드 수(1라운드에는 새 하위 질문 1개 추가).
 //     - refuseReport: true면 보고서 text()가 LLMError('refusal', …)를 던진다.
 //     - delay: 호출마다 쉬는 시간(ms). 백엔드 테스트에서 실행을 천천히 진행시킬 때 쓴다.
@@ -124,6 +126,7 @@ export class FakeLLM {
   // ── 구조화 출력 ──
   static stageOf(schema) {
     const props = schema?.properties || {};
+    if ('messages' in props && 'takeaways' in props) return 'deck';
     if ('topic_en' in props) return 'understanding';
     if ('sub_questions' in props) return 'plan';
     if ('evidence_strength' in props) return 'synthesis';
@@ -235,6 +238,51 @@ export class FakeLLM {
         { prompt: `${draft} — 연구 윤리와 표절 위험까지 포함해 비교`, focus: '범위 구체화', why: '반대 근거를 함께 살필 수 있다.' },
       ],
       questions: ['어느 전공 분야를 염두에 두고 있나요?'],
+    };
+  }
+
+  // 발표 구성안: 프롬프트의 "Sources you may cite" 목록("- S12: …")과 하위 질문 목록("- Q1: …")에 있는 id만 쓴다
+  _deck(prompt) {
+    const part = prompt.split('Sources you may cite')[1]?.split('Research brief')[0] || '';
+    const ids = [...part.matchAll(/^- (S\d+): /gm)].map((m) => m[1]);
+    const qids = [...prompt.split('Sub-questions:')[1]?.split('Scale of the evidence')[0].matchAll(/^- (Q\d+): /gm) || []]
+      .map((m) => m[1]);
+    const sids = (k) => (ids.length ? [ids[k % ids.length]] : []);
+    const cite = (k) => (ids.length ? ` [${ids[k % ids.length]}]` : '');
+    const qs = (k) => (qids.length ? [qids[k % qids.length]] : []);
+    const message = (k, headline, figure, text) => ({
+      headline,
+      points: [
+        { figure, text, detail: '대학원생 대상 실험', sids: sids(k) },
+        { figure: '', text: '품질 효과는 연구마다 엇갈린다', detail: '설문·준실험', sids: sids(k + 1) },
+      ],
+      takeaway: '과제 수준의 효과이며 장기 효과는 아직 모른다.',
+      strength: 'moderate', subq_ids: qs(k),
+      notes: `${headline}. 수집한 근거에 따르면 작성 시간이 줄었습니다${cite(k)}. 다만 품질 효과는 연구마다 엇갈립니다${cite(k + 1)}.`,
+    });
+    return {
+      title: '생성형 AI는 대학원생의 연구를 바꾸는가', subtitle: '가짜 LLM이 만든 발표 구성안',
+      question: '생성형 AI를 쓰면 연구가 더 빨라지고 좋아질까?',
+      context: ['2022년 이후 사용이 빠르게 늘었다', '대학원생 대상 연구는 아직 적다'],
+      answer: '작성 시간은 줄지만 품질 효과는 아직 분명하지 않다.',
+      answer_caveat: '근거 대부분이 단기 과제 연구다.',
+      messages: [
+        message(0, '작성 시간은 줄어든다', '40%', '작성 시간 감소'),
+        message(1, '품질 효과는 엇갈린다', '18%', '품질 점수 향상'),
+        message(2, '장기 효과는 아직 모른다', '', '종단 연구가 없다'),
+      ],
+      agree: [`시간 절감 효과에는 대체로 동의한다${cite(0)}`],
+      conflict: [`품질 효과는 연구마다 엇갈린다${cite(1)}`],
+      conflict_why: '표본과 과제 유형이 다르기 때문이다.',
+      gaps: [{ gap: '장기 효과 연구가 없다', why: '종단 연구가 수집된 근거에 없다.' }],
+      next_studies: [{ title: '대학원생 대상 종단 연구', design: '3년 패널', sample: '석·박사생 코호트', payoff: '장기 효과 추정' }],
+      cautions: ['초록만 분석했다.'],
+      takeaways: ['작성 시간은 줄어든다', '품질 효과는 엇갈린다', '장기 효과는 아직 모른다'],
+      closing: '이득은 분명하지만 좁고, 위험은 아직 덜 측정되었다.',
+      must_read: ids.slice(0, 2).map((sid) => ({ sid, why: '핵심 실험 근거' })),
+      subq_labels: qids.map((id) => ({ id, label: `${id}의 짧은 이름` })),
+      notes: { opening: '오늘의 질문입니다.', answer: '결론부터 말씀드리겠습니다.', landscape: '', strength: '', tension: '',
+        gaps: '', next: '', cautions: '', closing: '세 가지만 기억해 주세요.' },
     };
   }
 

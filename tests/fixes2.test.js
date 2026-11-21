@@ -288,11 +288,42 @@ test('조사 파일 가져오기: 저자가 문자열·unknown_ids가 문자열�
   assert.deepEqual(res.verification.unknown_ids, []);
   assert.deepEqual(res.trace, []);
   assert.deepEqual(res.reflections, []);
+  // 가져온 샘플은 원래 샘플의 미리 만든 구성안을 쓴다(문헌이 어긋나도 normalizeDeck이 없는 id를 지운다)
+  assert.equal(res.slides_source, 'sample');
   for (const fmt of ['md', 'html', 'docx', 'pptx']) {
     const out = await b.exportFile(id, fmt);
     assert.ok(out.data && (out.data.length || out.data.byteLength || out.data.size) > 100, fmt);
   }
   await b.dispose();
+});
+
+test('조사 파일에는 발표 구성안이 없다: 가져온 일반 실행 · 모르는 샘플 · result.json은 규칙 구성안으로 PowerPoint', async () => {
+  const storage = new MemoryStorage();
+  const b = mk({ storage });
+  const { id } = await b.createRun({ prompt: PROMPT, api_key: KEY, depth: 'quick', formats: ['md', 'pptx'] });
+  assert.equal((await b.waitForRun(id)).status, 'done');
+  assert.equal((await b.result(id)).slides_source, 'llm');
+  const rf = JSON.parse((await b.exportRunFile(id)).data);
+  assert.deepEqual(Object.keys(rf).sort(), ['app_version', 'events', 'exported_at', 'format', 'qa', 'result', 'version']);
+  assert.ok(!('slides_source' in rf.result) && !('deck' in rf.result), '조사 파일의 결과에 구성안 정보가 들어감');
+
+  const b2 = mk();
+  const { id: imp } = await b2.importRunFile(JSON.stringify(rf));
+  assert.equal((await b2.result(imp)).slides_source, 'rules');
+  // 샘플 표시가 있어도 이 사이트에 없는 샘플 id면 미리 만든 구성안을 쓰지 않는다
+  const sf = JSON.parse((await b2.exportRunFile(SAMPLE)).data);
+  sf.result.id = 'sample_unknown_topic';
+  const { id: imp2 } = await b2.importRunFile(JSON.stringify(sf));
+  assert.equal((await b2.result(imp2)).slides_source, 'rules');
+  // 결과물로 내보낸 result.json(조사 파일 형식이 아님)도 열고 PowerPoint를 만든다
+  const { id: imp3 } = await b2.importRunFile((await b.exportFile(id, 'json')).data);
+  assert.equal((await b2.result(imp3)).slides_source, 'rules');
+  for (const rid of [imp, imp2, imp3]) {
+    const out = await b2.exportFile(rid, 'pptx');
+    assert.equal(String.fromCharCode(out.data[0], out.data[1]), 'PK', rid);
+  }
+  await b.dispose();
+  await b2.dispose();
 });
 
 test('Run.liveUsage: 화면 비용은 llm.costUsd()(비용 한도가 비교하는 값)와 같다', () => {

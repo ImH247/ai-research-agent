@@ -139,6 +139,15 @@ test('화면 흐름 그대로: 작성 → 계획 수정 → 결과 → 내보내
   const html = await b.exportFile(id, 'html');
   assert.match(html.data, /^<!doctype html>/i);
 
+  // 발표 자료 다시 구성(result.js 대화상자): 지금 출처를 보여 주고, 키로 다시 구성한 뒤 PowerPoint를 내려받는다
+  assert.ok(['llm', 'sample', 'rules'].includes(res.slides_source));
+  assert.equal(res.slides_source, 'llm');
+  await assert.rejects(b.slides(id, {}), (e) => e.code === 'no_api_key' && e.status === 400);
+  assert.deepEqual(await b.slides(id, { api_key: KEY, model: cfg.models[0].id }), { ok: true, llm: true, source: 'llm' });
+  const pptx2 = await b.exportFile(id, 'pptx');
+  assert.equal(String.fromCharCode(pptx2.data[0], pptx2.data[1]), 'PK');
+  assert.equal((await b.result(id)).slides_source, 'llm');
+
   // 조사 파일 저장 → 열기
   const rf = await b.exportRunFile(id);
   assert.equal(rf.mime, 'application/json');
@@ -208,11 +217,45 @@ test('데모(속도 5): 키 없이 시작·폴링·결과·질문', async () => 
   assert.ok(c.events.some((e) => e.kind === 'stage'));
   const res = await b.result(id);
   assert.equal(res.meta.demo, true);
+  // 데모 결과 화면: PowerPoint는 미리 만든 구성안(키 없이 '다시 구성'은 키 창으로 보낸다 → 백엔드도 거부)
+  assert.equal(res.slides_source, 'sample');
+  await assert.rejects(b.slides(id, {}), (e) => e.code === 'no_api_key');
   const ans = await b.ask(id, { question: '연구 품질에 미치는 영향은?' });
   assert.equal(typeof ans.answer_html, 'string');
   const summary = (await b.listRuns()).runs.find((r) => r.id === id);
   assert.equal(summary.demo, true);
   await b.dispose();
+});
+
+test('result.js: 다른 형식 메뉴 맨 아래 "발표 자료 다시 구성 (AI)…" → 대화상자(출처 · 비용 · 키) → api.slides → PowerPoint', async () => {
+  // result.js는 DOM 화면 모듈이라 Node에서 불러오지 않고, 연결 지점을 소스에서 확인한다
+  const src = (await readFile(new URL('../assets/js/views/result.js', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  const menuAt = src.indexOf("label: '발표 자료 다시 구성 (AI)…'");
+  assert.ok(menuAt > 0, '메뉴 항목이 없음');
+  assert.ok(menuAt > src.indexOf("label: '전체 묶음 (ZIP)'"), '메뉴 맨 아래가 아님');
+  assert.ok(menuAt < src.indexOf("menu(moreBtn, items"), '메뉴를 연 뒤에 항목을 넣음');
+  const dlg = src.slice(src.indexOf('function openSlidesDialog('), src.indexOf('function buildHeader('));
+  assert.ok(dlg.length > 500, 'openSlidesDialog가 없음');
+  for (const s of ["title: '발표 자료 다시 구성'", "label: '취소'", "label: '구성하고 내려받기'", 'api.slides(runId, { api_key: key',
+    "downloadFile(runId, 'pptx')", 'openKeyDialog()', 'estimateDeckCost(', 'SLIDES_SOURCE_LABEL[source]', "role: 'alert'",
+    'htmlFor: modelId', "setBusy(btn, true"]) {
+    assert.ok(dlg.includes(s), `대화상자에 ${s} 없음`);
+  }
+  // 키가 없으면 대화상자 대신 키 창을 연다(맨 앞에서 확인)
+  assert.ok(dlg.indexOf('if (!getApiKey())') < dlg.indexOf('modal('));
+  // 출처 이름 세 가지와 규칙 구성안 안내 문장
+  for (const s of ["llm: 'AI가 구성'", "sample: '샘플에 들어 있는 구성'", "rules: '규칙으로 구성'",
+    "\"규칙으로 구성한 발표 자료입니다. API 키가 있으면 '다른 형식 → 발표 자료 다시 구성'으로 다듬을 수 있습니다.\""]) {
+    assert.ok(src.includes(s), `${s} 없음`);
+  }
+  assert.match(src, /fmt === 'pptx' && slidesSource\(\) === 'rules'/);
+  assert.match(src, /str\(st\.raw\?\.slides_source\)/);
+  // 요청이 끝나기 전에 창을 닫으면(취소 · Esc · 바깥 누르기) 결과를 알림으로 알리고, 파일을 불쑥 내려받지 않는다
+  assert.ok(dlg.includes('onClose: () => { dismissed = true; unsub(); }'), '창을 닫은 것을 기억하지 않음');
+  const afterCall = dlg.slice(dlg.indexOf('api.slides(runId'));
+  assert.ok(afterCall.indexOf('if (dismissed)') < afterCall.indexOf("downloadFile(runId, 'pptx')"), '닫은 뒤에도 내려받음');
+  const inCatch = dlg.slice(dlg.lastIndexOf('} catch (err) {'));
+  assert.ok(/if \(dismissed\) \{[\s\S]*?toast\(message, 'error'/.test(inCatch), '닫힌 창의 실패를 알리지 않음');
 });
 
 test('새로고침 흉내 → 중단·이어서 가능 → 같은 화면에서 이어서 진행(seq 이어짐)', async () => {

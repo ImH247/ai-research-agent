@@ -246,16 +246,18 @@ test('전체 실행(웹 검색·병렬 3·계획 검토) → 모든 형식 내�
   // 결과 계약 (3.2 + budget) 과 화면용 추가 키
   const res = await b.result(id);
   checkResult(res, 'result');
-  for (const k of ['report_html', 'toc', 'exports', 'qa', 'parent_id', 'custom_title', 'imported']) assert.ok(Object.hasOwn(res, k), k);
+  for (const k of ['report_html', 'toc', 'exports', 'qa', 'parent_id', 'custom_title', 'imported', 'slides_source']) assert.ok(Object.hasOwn(res, k), k);
+  assert.equal(res.slides_source, 'llm', 'pptx를 고른 실행은 내보내기 단계에서 LLM이 발표 구성안을 짠다');
   assert.equal(res.id, id);
   assert.equal(res.meta.config.parallelism, 3);
   assert.equal(res.meta.budget_cap_usd, null);
   assert.equal(res.meta.budget_hit, false);
   assert.deepEqual(res.meta.counts, final.counts);
-  // meta.usage는 결과를 조립한 시점의 값(원본과 같이 pptx 슬라이드 개요 호출 1회는 빠짐), 스냅샷은 끝까지 센다
+  // meta.usage는 내보내기 단계의 발표 구성안 호출까지 넣어 다시 저장한다 → 결과 화면의 비용이 실행 목록(스냅샷)과 같다
   const totalCalls = llms.reduce((n, l) => n + l.usage.calls, 0);
   assert.equal(final.usage.calls, totalCalls);
-  assert.equal(res.meta.usage.calls, totalCalls - 1);
+  assert.equal(res.meta.usage.calls, totalCalls);
+  assert.equal(res.meta.usage.cost_usd, final.usage.cost_usd);
   const webSrc = res.sources.filter((s) => s.kind === 'web' && s.origin === 'WebSearch');
   assert.ok(webSrc.length >= 1, '웹 검색 문헌 없음');
   assert.ok(webSrc.some((s) => s.url === WEB_REPORT_URL && s.abstract), '인용문이 웹 문헌 초록에 붙지 않음');
@@ -319,6 +321,9 @@ test('데모 재생(키 없음) → 계약 키, 모든 형식 내보내기', asy
   assert.equal(res.meta.demo, true);
   assert.equal(res.prompt, '데모 주제');
   assert.ok(res.meta.note);
+  // 데모는 LLM 없이 재생하므로 재생한 샘플의 미리 만든 구성안으로 PowerPoint를 만든다
+  assert.equal(res.slides_source, 'sample');
+  assert.equal((await storage.get('meta', `slides:${id}`)).source, 'sample');
   await exportAll(b, id, 'demo');
 });
 
@@ -347,6 +352,8 @@ test('조사 파일 저장 → 다른 브라우저(새 저장소)에서 열기 �
   assert.equal(res.meta.imported_from, id);
   assert.equal(res.qa.length, 1);
   assert.equal((await b2.events(imp, 0, 0)).events.length, events);
+  // 조사 파일에는 발표 구성안이 없다 → 가져온 실행은 규칙 구성안으로 PowerPoint를 만든다
+  assert.equal(res.slides_source, 'rules');
   const { out } = await exportAll(b2, imp, 'imported');
   assert.equal(out.md.data, md, '가져온 실행의 Markdown이 원래 실행과 다름');
 
@@ -362,5 +369,8 @@ test('조사 파일 저장 → 다른 브라우저(새 저장소)에서 열기 �
   const sf = await b3.exportRunFile(SAMPLE);
   const { id: imp2 } = await b3.importRunFile(sf.data);
   await checkFile(await b3.exportFile(imp2, 'pptx'), 'pptx', 'imported sample');
-  checkResult(await b3.result(imp2), 'imported sample result', { budget: false });
+  const res2 = await b3.result(imp2);
+  checkResult(res2, 'imported sample result', { budget: false });
+  // 가져온 샘플은 원래 샘플의 미리 만든 구성안을 그대로 쓴다(같은 보고서·문헌)
+  assert.equal(res2.slides_source, 'sample');
 });

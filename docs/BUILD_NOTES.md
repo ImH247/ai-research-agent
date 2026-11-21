@@ -235,7 +235,7 @@ No new public API.
 
 ### 주의할 점
 
-- `result.meta.usage` is fixed when the result is assembled, before the export stage. The pptx outline call from `makeOutline` therefore shows up in the run snapshot's usage but not in meta.usage or the exported files. The Python original behaves the same; the test asserts that the two differ by exactly 1 call.
+- `result.meta.usage` is set when the result is assembled, before the export stage, and then refreshed after the deck-plan call (`makeDeck`) of the export stage: the result is saved again with the final usage. The Python original left its small outline call out of meta.usage; the web app counts the deck-plan call because it is a large call (about 10k output tokens) and the cost shown on the result page would otherwise be lower than the cost in the run list. The test asserts that the two are equal. A later "발표 자료 다시 구성" from the result page is a separate action and is not added to meta.usage.
 - ?mock=1 and GitHub Pages: the front end imports tests/fakes.js, which imports vendor/anthropic-sdk.js and engine modules. The tests/ folder must be deployed to Pages; check this if the repo or the zip leaves tests out. tests/index.js and the *.test.js files import node:fs, but fakes.js does not, so it can load in the browser.
 - Still unverified, because there is no real API key or browser here:
 - the real Claude API with the web_search_20260209 server tool: code_execution blocks, pause_turn, citations, whether strict tools are accepted next to the server tool;

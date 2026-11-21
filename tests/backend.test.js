@@ -11,6 +11,7 @@ import { Run, cpLength } from '../assets/js/engine/runs.js';
 import { buildRunFile, parseRunFile } from '../assets/js/engine/runfile.js';
 import { LLMError } from '../assets/js/engine/llm.js';
 import { FakeLLM, makeFakeTools } from './fakes.js';
+import JSZip from '../vendor/jszip.js';
 
 const KEY = 'sk-ant-api03-TESTSECRET_backend_key-000111222';
 const SAMPLE = 'sample_genai_graduate_research';
@@ -19,10 +20,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const loadSample = (p) => readFile(new URL(`../data/samples/${p}`, import.meta.url), 'utf8');
 const storages = [];
 
-function mk({ storage = new MemoryStorage(), llm = () => new FakeLLM(), tools = null, sampleSpeed = 1, listModels = null } = {}) {
+function mk({ storage = new MemoryStorage(), llm = () => new FakeLLM(), tools = null, sampleSpeed = 1, listModels = null,
+  load = loadSample } = {}) {
   storages.push(storage);
-  const b = createBackend({ storage, llmFactory: llm, tools: tools || makeFakeTools({ fail: [] }), loadSample, sampleSpeed, listModels });
+  const b = createBackend({ storage, llmFactory: llm, tools: tools || makeFakeTools({ fail: [] }), loadSample: load, sampleSpeed, listModels });
   return { b, storage };
+}
+
+/** pptx(zip) 안 슬라이드 · 노트 XML 전부를 한 문자열로 (구성안의 글이 들어갔는지 확인용) */
+async function pptxText(file) {
+  const zip = await JSZip.loadAsync(file.data);
+  const parts = [];
+  for (const [name, entry] of Object.entries(zip.files)) {
+    if (/^ppt\/(slides|notesSlides)\/[^/]+\.xml$/.test(name)) parts.push(await entry.async('string'));
+  }
+  return parts.join('\n');
 }
 
 async function waitFor(fn, ms = 15000, step = 5) {
@@ -194,8 +206,11 @@ test('실행 생성 → 폴링으로 끝까지, 결과·결과물·Q&A', async (
   assert.ok(Array.isArray(item.sources));
   assert.equal((await b.qa(created.id)).items.length, 1);
   assert.equal((await b.result(created.id)).qa.length, 1);
+  // pptx를 골랐으므로 내보내기 단계에서 이 실행의 LLM이 구성안을 짰다
+  assert.equal(res.slides_source, 'llm');
+  await rejectsCode(b.slides(created.id, {}), 'no_api_key', 400);
   const sl = await b.slides(created.id, { api_key: KEY });
-  assert.equal(sl.ok, true);
+  assert.deepEqual(sl, { ok: true, llm: true, source: 'llm' });
 
   await rejectsCode(b.submitPlan(created.id, { action: 'approve' }), 'not_awaiting', 409);
   assert.deepEqual(await b.cancel(created.id), { ok: false });
@@ -523,7 +538,9 @@ test('데모 재생(빠른 속도): 계획 검토 대기·재계획·승인, 결
   const ans = await b.ask(id, { question: '연구 품질에 미치는 영향은?' });
   assert.match(ans.answer_markdown, /^\*\*데모 모드: 관련 근거 상위 \d+건\*\*/);
   assert.equal(await storage.get('checkpoints', id), undefined);
-  assert.equal((await b.slides(id, {})).llm, false);
+  // 데모는 같은 샘플 보고서를 재생하므로 그 샘플의 미리 만든 구성안을 쓴다. 키 없이 다시 구성은 거부
+  assert.equal(res.slides_source, 'sample');
+  await rejectsCode(b.slides(id, {}), 'no_api_key', 400);
 });
 
 test('데모 재생 중 새로고침 → 키 없이 이어서 재생', async () => {
@@ -543,6 +560,105 @@ test('데모 재생 중 새로고침 → 키 없이 이어서 재생', async () 
   assertSeqs(evs);
   assert.ok(evs.some((e) => e.data?.resume_from > 10));
   assert.equal((await b.result(id)).meta.demo, true);
+});
+
+test('발표 구성안: 샘플은 미리 만든 구성안(sample), 키 없이 다시 구성은 거부, 키로 다시 구성하면 llm이 저장되고 다음 PowerPoint에 쓰인다', async () => {
+  const storage = new MemoryStorage();
+  const { b } = mk({ storage });
+  for (const sid of [SAMPLE, 'sample_roll_sensor_fabrication']) {
+    assert.equal((await b.result(sid)).slides_source, 'sample', sid);
+  }
+  const bundled = JSON.parse(await loadSample(`${SAMPLE}/slides.json`));
+  const before = await b.exportFile(SAMPLE, 'pptx');
+  assert.equal(String.fromCharCode(before.data[0], before.data[1]), 'PK');
+  assert.ok((await pptxText(before)).includes(bundled.messages[0].headline), '샘플 구성안의 첫 메시지가 슬라이드에 없음');
+
+  await rejectsCode(b.slides(SAMPLE, {}), 'no_api_key', 400);
+  await rejectsCode(b.slides(SAMPLE, { api_key: 'sk ant' }), 'auth', 400);
+  await rejectsCode(b.slides(SAMPLE, { api_key: KEY, model: 'bad model!' }), 'invalid_model', 400);
+  assert.equal((await b.result(SAMPLE)).slides_source, 'sample', '거부된 요청은 구성안을 바꾸지 않는다');
+
+  assert.deepEqual(await b.slides(SAMPLE, { api_key: KEY }), { ok: true, llm: true, source: 'llm' });
+  assert.equal((await b.result(SAMPLE)).slides_source, 'llm');
+  const stored = await storage.get('meta', `slides:${SAMPLE}`);
+  assert.equal(stored.version, 2);
+  assert.equal(stored.source, 'llm');
+  const after = await b.exportFile(SAMPLE, 'pptx');
+  const text = await pptxText(after);
+  assert.ok(text.includes(stored.messages[0].headline), 'LLM 구성안의 첫 메시지가 슬라이드에 없음');
+  assert.ok(!text.includes(bundled.messages[0].headline), '이전(샘플) 구성안으로 만든 파일이 남아 있음');
+
+  // 새로고침 뒤에도 키로 다시 구성한 구성안을 쓴다(샘플 자체는 읽기 전용이지만 구성안은 저장소에 남긴다)
+  const { b: b2 } = mk({ storage });
+  assert.equal((await b2.result(SAMPLE)).slides_source, 'llm');
+  assert.equal((await b2.result('sample_roll_sensor_fabrication')).slides_source, 'sample');
+});
+
+test('발표 구성안: 일반 실행은 키 없이 다시 구성 거부, 규칙(rules) → 키로 다시 구성(llm), 실패하면 그대로', async () => {
+  class NoDeckLLM extends FakeLLM {
+    async json(system, prompt, schema, opts = {}) {
+      if (FakeLLM.stageOf(schema) === 'deck') return null;      // 구성안 호출만 실패(null)
+      return super.json(system, prompt, schema, opts);
+    }
+  }
+  const storage = new MemoryStorage();
+  const { b } = mk({ storage, llm: () => new NoDeckLLM() });
+  const { id } = await b.createRun({ prompt: PROMPT, api_key: KEY, depth: 'quick', formats: ['md', 'pptx'] });
+  const done = await b.waitForRun(id);
+  assert.equal(done.status, 'done', JSON.stringify(done.error));
+  assert.equal(done.exports.pptx, 'ready');
+  // 실행 중 구성안 호출이 실패 → 규칙 구성안을 저장하고 PowerPoint는 만들어진다
+  assert.equal((await b.result(id)).slides_source, 'rules');
+  assert.equal((await storage.get('meta', `slides:${id}`)).source, 'rules');
+  // 조용히 바뀌지 않는다: 과정 기록에 경고가 한 번 남는다
+  const warns = (await b.events(id, 0, 0)).events.filter((e) => e.kind === 'warning' && e.msg.includes('발표 구성안 생성 실패'));
+  assert.equal(warns.length, 1, '구성안 실패 경고');
+  assert.ok(warns[0].msg.includes('규칙으로 구성'));
+
+  await rejectsCode(b.slides(id, {}), 'no_api_key', 400);
+  await rejectsCode(b.slides(id, { api_key: KEY }), 'slides_failed', 502);
+  assert.equal((await b.result(id)).slides_source, 'rules', '실패하면 지금 구성안을 덮어쓰지 않는다');
+
+  // 같은 저장소, 구성안을 만들 수 있는 LLM → llm 구성안이 저장되고 다음 PowerPoint에 쓰인다
+  const { b: b2 } = mk({ storage });
+  assert.deepEqual(await b2.slides(id, { api_key: KEY }), { ok: true, llm: true, source: 'llm' });
+  const stored = await storage.get('meta', `slides:${id}`);
+  assert.equal(stored.source, 'llm');
+  assert.equal((await b2.result(id)).slides_source, 'llm');
+  const text = await pptxText(await b2.exportFile(id, 'pptx'));
+  assert.ok(text.includes(stored.messages[0].headline), 'LLM 구성안의 첫 메시지가 슬라이드에 없음');
+
+  // 삭제하면 구성안도 지운다
+  await b2.remove(id);
+  assert.equal(await storage.get('meta', `slides:${id}`), undefined);
+});
+
+test('발표 구성안: 저장소에 남은 옛 v1 개요는 버린다, slides.json이 없거나 틀리면 조용히 규칙 구성안', async () => {
+  const storage = new MemoryStorage();
+  const { b } = mk({ storage });
+  const { id } = await b.createRun({ prompt: PROMPT, api_key: KEY, depth: 'quick', formats: ['md'] });
+  assert.equal((await b.waitForRun(id)).status, 'done');
+  assert.equal((await b.result(id)).slides_source, 'rules');      // pptx를 고르지 않음 → 구성안 없음
+
+  // 예전 버전이 남긴 v1 개요(version 없음)
+  const v1 = { title: '옛 개요', summary: ['요약'], sections: [{ title: 'Q1', bullets: ['가'] }] };
+  await storage.put('meta', `slides:${id}`, v1);
+  await storage.put('meta', `slides:${SAMPLE}`, v1);
+  const { b: b2 } = mk({ storage });
+  assert.equal((await b2.result(id)).slides_source, 'rules');
+  assert.equal((await b2.result(SAMPLE)).slides_source, 'sample');
+  const file = await b2.exportFile(id, 'pptx');
+  assert.equal(String.fromCharCode(file.data[0], file.data[1]), 'PK');
+  assert.ok(!(await pptxText(file)).includes('옛 개요'));
+
+  // 미리 만든 구성안이 없거나(404) 형식이 틀리면(v1 · 깨진 JSON) 규칙 구성안
+  for (const bad of [null, '{"title": "v1"}', '{ 깨진']) {
+    const load = (p) => (p.endsWith('/slides.json') ? (bad === null ? Promise.reject(new Error('404')) : Promise.resolve(bad)) : loadSample(p));
+    const { b: b3 } = mk({ load });
+    assert.equal((await b3.result(SAMPLE)).slides_source, 'rules', String(bad));
+    const f = await b3.exportFile(SAMPLE, 'pptx');
+    assert.equal(String.fromCharCode(f.data[0], f.data[1]), 'PK');
+  }
 });
 
 test('저장소 어디에도 API 키가 남지 않는다', async () => {

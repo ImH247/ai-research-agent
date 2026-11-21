@@ -86,10 +86,23 @@ def check_docx(path: Path) -> list[str]:
 
 
 def _em(ch):
-    return 1.0 if ord(ch) >= 0x1100 else 0.58
+    """pptx.js의 글자 폭 어림과 같은 값 (맑은 고딕을 PowerPoint로 그려 잰 값)."""
+    cp = ord(ch)
+    if cp >= 0x1100 or 0x2190 <= cp <= 0x27BF or cp == 0x2026:
+        return 1.0
+    if "A" <= ch <= "Z":
+        return 0.66
+    if "0" <= ch <= "9":
+        return 0.58
+    if "a" <= ch <= "z":
+        return 0.52
+    if ch == " ":
+        return 0.35
+    return 0.3 if ch in ".,·:;!?'\"()[]/|-" else 0.6
 
 
 def check_pptx(path: Path) -> list[str]:
+    """발표 자료 v2(docs/SLIDES_V2.md 3절) 구조 검사."""
     from pptx import Presentation
     from pptx.util import Emu
 
@@ -99,16 +112,30 @@ def check_pptx(path: Path) -> list[str]:
     if abs(sw / sh - 16 / 9) > 0.01:
         errs.append(f"16:9가 아님: {sw}x{sh}")
     slides = list(prs.slides)
-    if len(slides) < 10:
-        errs.append(f"슬라이드가 너무 적음: {len(slides)}")
+    # 표지 · 질문 · 결론 · 방법 · 근거 지형 · 메시지 3~5 · 마무리 · 부록(참고문헌은 여러 장일 수 있다)
+    if not 12 <= len(slides) <= 40:
+        errs.append(f"슬라이드 수가 범위(12~40) 밖: {len(slides)}")
     tol = Emu(9144)   # 0.01인치
     charts = tables = notes = 0
     chart_types = []
     for i, s in enumerate(slides, 1):
+        sizes = []
         for shp in s.shapes:
             x, y, cx, cy = shp.left or 0, shp.top or 0, shp.width or 0, shp.height or 0
-            if x < -tol or y < -tol or x + cx > sw + tol or y + cy > sh + tol:
+            # 장식 원(어두운 슬라이드의 반투명 원)은 일부러 밖으로 걸쳐 둔다
+            out = x < -tol or y < -tol or x + cx > sw + tol or y + cy > sh + tol
+            if out and not shp.name.startswith("Decoration"):
                 errs.append(f"슬라이드 {i}: '{shp.name}'이(가) 화면 밖으로 나감")
+            if shp.has_text_frame:
+                sizes += [r.font.size.pt for p in shp.text_frame.paragraphs for r in p.runs if r.font.size]
+                # 글상자(txBox)는 늘 글이 있어야 한다(빈 글상자는 그리기 실수)
+                if shp._element.xpath("./p:nvSpPr/p:cNvSpPr[@txBox='1']") and not shp.text_frame.text.strip():
+                    errs.append(f"슬라이드 {i}: 빈 글상자 '{shp.name}'")
+        # 모든 슬라이드에 제목 크기(20pt 이상)의 글이 하나는 있다
+        if not any(sz >= 20 for sz in sizes):
+            errs.append(f"슬라이드 {i}: 제목 크기의 글이 없음")
+        for shp in s.shapes:
+            x, y, cx, cy = shp.left or 0, shp.top or 0, shp.width or 0, shp.height or 0
             if shp.has_chart:
                 charts += 1
                 chart_types.append(str(shp.chart.chart_type).split(".")[-1].split(" ")[0])
@@ -129,7 +156,7 @@ def check_pptx(path: Path) -> list[str]:
                     size = max(sizes)
                     per = max((cx / 914400 - 0.1 - (0.24 if p._p.pPr is not None and p._p.pPr.get("marL") else 0)) * 72 / size, 1)
                     n = sum(max(1, math.ceil(sum(map(_em, part)) * 1.1 / per)) for part in txt.split("\n"))
-                    lines += n * size * 1.3 / 72
+                    lines += n * size * 1.2 / 72
                 if lines > cy / 914400 + 0.35:
                     warns.append(f"슬라이드 {i}: 글상자 넘침 가능 ({lines:.2f}in > {cy / 914400:.2f}in)")
         if s.has_notes_slide and s.notes_slide.notes_text_frame.text.strip():
@@ -170,10 +197,11 @@ def check_pptx(path: Path) -> list[str]:
                     bad_order += 1
     if bad_order:
         errs.append(f"글꼴 요소 순서 · 중복 오류 {bad_order}곳")
+    # 샘플은 통계가 있으므로 근거 지형 슬라이드에 진짜 차트 3개(연구 유형 · 출판 연도 · 결과 방향)
     if charts < 3:
         errs.append(f"차트가 3개 미만: {charts}")
-    if notes < 1:
-        errs.append("발표자 노트가 없음")
+    if notes != len(slides):
+        errs.append(f"발표자 노트가 없는 슬라이드가 있음: 노트 {notes} / 슬라이드 {len(slides)}")
     print(f"  pptx: 슬라이드 {len(slides)} · 차트 {charts} ({', '.join(chart_types)}) · 표 {tables} · 노트 {notes}"
           f" · 넘침 경고 {len(warns)}")
     for wmsg in warns[:8]:
