@@ -43,7 +43,7 @@ npx esbuild tools/vendor-entries/markdown-it.mjs --bundle --format=esm --platfor
 ## 글꼴 (Fonts)
 
 라벤더 디자인(기본 스킨)이 쓰는 글꼴은 `assets/fonts/`에 함께 배포합니다(외부 글꼴 서버를 쓰지 않습니다). 선언은 `assets/fonts/fonts.css`에 있고,
-지금 디자인(클래식 스킨)이 쓰는 이름과 겹치지 않도록 글꼴 이름만 `"RA Pretendard"`, `"RA Outfit"`으로 바꿔 선언했습니다(글꼴 파일은 고치지 않았습니다).
+이전 디자인(클래식 스킨)이 쓰는 이름과 겹치지 않도록 글꼴 이름만 `"RA Pretendard"`, `"RA Outfit"`으로 바꿔 선언했습니다(글꼴 파일은 고치지 않았습니다).
 
 | 글꼴 | 버전 | 라이선스 | 들어 있는 파일 | 사용하는 곳 |
 |---|---|---|---|---|

@@ -122,16 +122,19 @@ const THEME_OPTS = [
 /**
  * 3칸 테마 세그먼트(설정 창·펼친 사이드바가 같은 상태를 쓴다). compact면 아이콘만(사이드바).
  * 구독 해제 함수를 함께 돌려준다.
+ * 버튼은 한 번만 만들고, 고를 때는 aria-pressed만 바꾼다. 고를 때마다 버튼을 다시 만들면 방금 누른 버튼이 사라져
+ * 키보드 초점이 창 밖(body)으로 빠진다.
  */
 function themeControl({ compact = false } = {}) {
   const wrap = h('div', { class: ['seg', 'theme-seg', compact ? 'seg-icons' : ''], role: 'group', 'aria-label': '테마' });
+  const btns = THEME_OPTS.map(([id, ic, label]) => h('button', {
+    type: 'button', class: 'seg-btn', title: label, 'aria-label': `테마: ${label}`,
+    onClick: () => setTheme(id),
+  }, icon(ic, compact ? 15 : 16), compact ? null : h('span', { 'aria-hidden': 'true' }, label)));
+  wrap.append(...btns);
   const render = () => {
     const theme = store.get().theme;
-    wrap.replaceChildren(...THEME_OPTS.map(([id, ic, label]) => h('button', {
-      type: 'button', class: 'seg-btn', title: label, 'aria-label': `테마: ${label}`,
-      'aria-pressed': theme === id ? 'true' : 'false',
-      onClick: () => setTheme(id),
-    }, icon(ic, compact ? 15 : 16), compact ? null : h('span', { 'aria-hidden': 'true' }, label))));
+    btns.forEach((btn, i) => btn.setAttribute('aria-pressed', THEME_OPTS[i][0] === theme ? 'true' : 'false'));
   };
   render();
   const unsub = store.subscribe((s, p) => { if (s.theme !== p.theme) render(); });
@@ -159,16 +162,17 @@ const SKIN_OPTS = [
   ['classic', '클래식'],
 ];
 
-/** 2칸 디자인 세그먼트(설정 창). 구독 해제 함수를 함께 돌려준다. */
+/** 2칸 디자인 세그먼트(설정 창). 구독 해제 함수를 함께 돌려준다. 버튼은 한 번만 만든다(themeControl과 같은 이유: 초점 유지). */
 function skinControl() {
   const wrap = h('div', { class: 'seg theme-seg skin-seg', role: 'group', 'aria-label': '디자인' });
+  const btns = SKIN_OPTS.map(([id, label]) => h('button', {
+    type: 'button', class: 'seg-btn', 'aria-label': `디자인: ${label}`,
+    onClick: () => setSkin(id),
+  }, h('span', { 'aria-hidden': 'true' }, label)));
+  wrap.append(...btns);
   const render = () => {
     const skin = store.get().skin;
-    wrap.replaceChildren(...SKIN_OPTS.map(([id, label]) => h('button', {
-      type: 'button', class: 'seg-btn', 'aria-label': `디자인: ${label}`,
-      'aria-pressed': skin === id ? 'true' : 'false',
-      onClick: () => setSkin(id),
-    }, h('span', { 'aria-hidden': 'true' }, label))));
+    btns.forEach((btn, i) => btn.setAttribute('aria-pressed', SKIN_OPTS[i][0] === skin ? 'true' : 'false'));
   };
   render();
   const unsub = store.subscribe((s, p) => { if (s.skin !== p.skin) render(); });
