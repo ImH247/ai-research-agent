@@ -1414,7 +1414,8 @@ export function eventRow(ev, cfg = {}) {
       return rowShell(ev, cfg, 'emph', [icon('file-text', 14, 'feed-ic'),
         h('span', { class: 'feed-strong' }, msg || '사용자 요청으로 추가 조사를 멈추고 지금까지 모은 근거로 보고서를 씁니다.')]);
     case 'reflection':
-      return rowShell(ev, cfg, 'card', has ? reflectionCard(d) : h('span', { class: 'feed-msg' }, msg));
+      // 구조화된 값이 없는 옛 기록(샘플 등)은 카드가 아니라 보통 줄로 보여 준다(카드 줄의 위 여백이 붙지 않게)
+      return has ? rowShell(ev, cfg, 'card', reflectionCard(d)) : plain('summary');
     case 'replan': {
       if (has && str(d.question)) {
         return rowShell(ev, cfg, 'summary', [

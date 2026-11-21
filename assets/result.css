@@ -337,7 +337,7 @@
 .cbars:has(> .cbar:nth-child(13)) .cbar-value { font-size: 0; }
 
 /* 표 보기 */
-.chart-table-wrap { overflow-x: auto; max-width: 100%; }
+.chart-table-wrap { position: relative; overflow-x: auto; max-width: 100%; } /* relative: app.css의 .table-wrap과 같은 이유(숨김 글자가 스크롤 상자 밖으로 새지 않게) */
 .chart-table { width: 100%; border-collapse: collapse; font-size: var(--fs-13); }
 .chart-table th, .chart-table td { padding: 6px var(--sp-2); text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
 .chart-table thead th { background: var(--surface-2); font-size: var(--fs-12); font-weight: 600; color: var(--text-2); white-space: nowrap; }
@@ -616,6 +616,7 @@
 .events-full { margin-top: var(--sp-2); }
 .events-count { margin: 0 0 var(--sp-2); font-size: var(--fs-12); color: var(--text-3); }
 .events-scroll {
+  position: relative; /* 스크롤 상자 안의 숨김 글자가 밖으로 새지 않게(app.css의 .table-wrap과 같은 이유) */
   margin: 0; padding: 0 var(--sp-1) 0 0; list-style: none;
   max-height: min(70vh, 640px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
   border-bottom: 1px solid var(--border);

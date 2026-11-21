@@ -650,8 +650,11 @@ kbd {
 .feed-bullets li::before { content: ""; position: absolute; left: 2px; top: 0.65em; width: 4px; height: 4px; border-radius: var(--r-pill); background: var(--border-strong); }
 .feed-emph .feed-body { position: relative; padding-left: var(--sp-3); }
 .feed-emph .feed-body::before { content: ""; position: absolute; left: 0; top: 2px; bottom: 2px; width: 2px; border-radius: 1px; background: var(--accent); }
-.feed-card .feed-row.feed-card { align-items: start; }
-.feed-row.feed-card > .feed-time, .feed-row.feed-card > .feed-stage { padding-top: var(--sp-3); }
+/* 자기 비판 카드 줄: 시각 · 단계 태그를 카드 안 첫 줄 높이로 내린다(진행 화면과 결과 화면의 "과정" 탭 모두).
+   태그는 높이가 20px로 고정이라 안쪽 여백(padding)으로 내리면 글자가 밀려 잘린다 → 바깥 여백(margin)으로 내린다. */
+.feed-row.feed-card { align-items: start; }
+.feed-row.feed-card > .feed-time { padding-top: var(--sp-3); }
+.feed-row.feed-card > .feed-stage { margin-top: var(--sp-3); }
 .feed-divider { grid-template-columns: 64px minmax(0, 1fr); }
 .feed-divider-text {
   display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-12); font-weight: 600; color: var(--text-3);
@@ -711,7 +714,9 @@ kbd {
 .tab .badge { height: 18px; padding: 0 var(--sp-1); }
 
 /* ───────── 13. 표 ───────── */
-.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); }
+/* position: relative — 스크롤 상자가 안쪽 .sr-only(position: absolute)의 기준 상자가 되게 한다.
+   기준이 상자 밖이면 숨김 글자가 잘리지 않고 표의 원래 위치(수천 px 아래)에 놓여, 화면이 빈 공간으로 계속 내려간다. */
+.table-wrap { position: relative; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); }
 .table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--fs-13); }
 .table th, .table td { padding: var(--sp-3); text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
 .table th {
